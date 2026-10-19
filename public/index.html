@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>유튜브 댓글 에이전트</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <h1>유튜브 댓글 에이전트</h1>
+      <p id="meta" class="meta">설정 불러오는 중…</p>
+    </header>
+
+    <main class="cols">
+      <section class="col" id="col1">
+        <h2><span class="num">1</span>영상 불러오기</h2>
+        <p class="hint">지정 채널 5곳의 최신 영상을 가져옵니다.</p>
+        <button id="load" class="primary">영상 불러오기</button>
+        <form id="linkForm" class="row">
+          <input
+            id="link"
+            type="text"
+            placeholder="또는 영상 링크 붙여넣기"
+            aria-label="영상 링크"
+          />
+          <button type="submit">확인</button>
+        </form>
+        <button id="rising" class="ghost">
+          ‘연애’ 뜨기 직전 영상 찾기 (초안만)
+        </button>
+        <p id="listMsg" class="msg"></p>
+        <ul id="list" class="list"></ul>
+      </section>
+
+      <section class="col" id="col2">
+        <h2><span class="num">2</span>영상 선택</h2>
+        <p class="hint">
+          왼쪽 목록에서 영상을 고르면 AI가 고민 한 줄과 댓글 초안을 씁니다.
+        </p>
+        <div id="detail" class="empty">선택한 영상이 없습니다.</div>
+      </section>
+
+      <section class="col" id="col3">
+        <h2><span class="num">3</span>댓글 달기</h2>
+        <p class="hint">크롬 프로필이 열리고 한 글자씩 입력해 게시합니다.</p>
+        <label class="field"
+          >프로필
+          <select id="profile"></select>
+        </label>
+        <button id="post" class="primary" disabled>댓글 달기</button>
+        <p id="postReason" class="msg"></p>
+        <ol id="steps" class="steps">
+          <li data-s="프로필 여는 중">프로필 여는 중</li>
+          <li data-s="입력 중">입력 중</li>
+          <li data-s="게시 완료">게시 완료 · 댓글 보기</li>
+        </ol>
+        <div id="result"></div>
+        <p id="quota" class="meta"></p>
+      </section>
+    </main>
+
+    <section class="logs">
+      <h2>기록 <span class="meta">최신이 위</span></h2>
+      <table>
+        <thead>
+          <tr>
+            <th>시각</th>
+            <th>영상</th>
+            <th>프로필</th>
+            <th>댓글</th>
+            <th>결과</th>
+            <th>캡처</th>
+          </tr>
+        </thead>
+        <tbody id="logs"></tbody>
+      </table>
+    </section>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
