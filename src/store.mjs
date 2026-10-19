@@ -35,8 +35,8 @@ export function openStore(file) {
       db.prepare(`SELECT COUNT(*) AS n FROM logs WHERE day = ? AND status = 'success'`).get(day).n,
     commentedIds: () =>
       new Set(db.prepare(`SELECT video_id FROM logs WHERE status = 'success'`).all().map((r) => r.video_id)),
-    previousComments: (n = 30) =>
-      db.prepare(`SELECT comment FROM logs WHERE status = 'success' ORDER BY ts DESC LIMIT ?`).all(n).map((r) => r.comment),
+    previousComments: (n = 30, exceptVideoId = '') =>
+      db.prepare(`SELECT comment FROM logs WHERE status = 'success' AND video_id IS NOT ? ORDER BY ts DESC LIMIT ?`).all(exceptVideoId, n).map((r) => r.comment),
     lastUsed: (profile) =>
       db.prepare(`SELECT MAX(ts) AS t FROM logs WHERE profile = ? AND status IN ('success','failed')`).get(profile).t || 0,
     list: (limit = 200) => db.prepare(`SELECT * FROM logs ORDER BY ts DESC LIMIT ?`).all(limit),

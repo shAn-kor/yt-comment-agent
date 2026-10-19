@@ -17,7 +17,7 @@ const store = openStore(path.join(DATA, 'agent.db'));
 
 const contexts = new Map(); // videoId -> 영상 자료 (자막·댓글)
 const risingIds = new Set(); // 뜨기 직전 영상: 초안만 허용
-const sessionDrafts = []; // 이번 실행에서 만든 초안 (영상마다 다르게)
+const sessionDrafts = []; // 이번 실행에서 만든 초안 {videoId, text} (영상마다 다르게)
 const jobs = new Map();
 let busy = false;
 
@@ -26,22 +26,39 @@ async function context(videoId) {
   return contexts.get(videoId);
 }
 
-const previous = () => [...store.previousComments(), ...sessionDrafts].slice(0, 30);
+// 다른 영상에 쓴 댓글·초안만 비교 대상 (같은 영상의 초안을 고친 글은 비슷해도 된다)
+const previous = (videoId) =>
+  [...store.previousComments(30, videoId), ...sessionDrafts.filter((d) => d.videoId !== videoId).map((d) => d.text)].slice(0, 30);
 
 function videoOf(ctx) {
+  // 채널 이름은 설정의 한글 이름을 우선, 썸네일은 항상 있는 hqdefault
+  const known = config.channels.find((c) => c.id === ctx.channelId);
   return {
-    videoId: ctx.videoId, title: ctx.title, channelId: ctx.channelId, channelName: ctx.channelName,
-    thumbnail: ctx.thumbnail, views: ctx.views,
+    videoId: ctx.videoId, title: ctx.title, channelId: ctx.channelId, channelName: known?.name || ctx.channelName,
+    thumbnail: `https://i.ytimg.com/vi/${ctx.videoId}/hqdefault.jpg`, views: ctx.views,
     published: ctx.timestamp ? new Date(ctx.timestamp * 1000).toISOString() : null,
   };
 }
 
+// 게시 전 규칙 상태 (화면 표시용. 실제 차단은 /api/post에서 다시 검사)
 function postState(video) {
-  if (risingIds.has(video.videoId) && checkLoadScope(video, config).ok === false) return { ok: false, reason: '뜨기 직전 영상은 초안까지만' };
+  const draftOnly = risingIds.has(video.videoId) && !checkLoadScope(video, config).ok;
   const scope = checkPostScope(video, config);
-  if (!scope.ok) return scope;
-  if (store.hasSuccess(video.videoId)) return { ok: false, reason: '이미 댓글을 단 영상' };
-  return { ok: true };
+  const done = store.hasSuccess(video.videoId);
+  const used = store.countSuccessOn(kstDate());
+  const left = Math.max(config.limits.dailyMax - used, 0);
+  const checks = [
+    {
+      key: 'scope',
+      label: scope.kind === 'test' ? '본인 테스트 영상' : '허용된 게시 범위',
+      ok: !draftOnly && scope.ok,
+      note: draftOnly ? '뜨기 직전 영상은 초안까지만' : scope.reason || '',
+    },
+    { key: 'once', label: '이 영상에 첫 댓글', ok: !done, note: done ? '이미 댓글을 단 영상 (영상당 1개)' : '' },
+    { key: 'quota', label: `오늘 남은 게시 ${left}/${config.limits.dailyMax}`, ok: left > 0, note: left ? '' : '오늘 상한 도달' },
+  ];
+  const failed = checks.find((c) => !c.ok);
+  return { ok: !failed, reason: failed?.note || '', checks };
 }
 
 // ── API ─────────────────────────────────────────────
@@ -85,8 +102,8 @@ const routes = {
     const ctx = await context(videoId);
     const video = videoOf(ctx);
     if (!checkLoadScope(video, config).ok && !risingIds.has(videoId)) return { status: 403, error: '허용 범위 밖 영상' };
-    const draft = await draftComment(ctx, { ...config.comment, previous: previous() });
-    if (draft?.comment) sessionDrafts.unshift(draft.comment);
+    const draft = await draftComment(ctx, { ...config.comment, previous: previous(videoId) });
+    if (draft?.comment) sessionDrafts.unshift({ videoId, text: draft.comment });
     return {
       video,
       sourceLabel: ctx.sourceLabel,
@@ -102,7 +119,7 @@ const routes = {
 
   'POST /api/validate': async ({ videoId, comment, detail }) => {
     const ctx = await context(videoId);
-    const prev = previous().filter((c) => c !== comment);
+    const prev = previous(videoId);
     return validateComment(comment, { source: sourceText(ctx), detail, ...config.comment, previous: prev });
   },
 
@@ -118,7 +135,7 @@ const routes = {
       return { status: 403, error: '뜨기 직전 영상은 초안까지만' };
     }
     const v = validateComment(comment, {
-      source: sourceText(ctx), detail, ...config.comment, previous: previous().filter((c) => c !== comment),
+      source: sourceText(ctx), detail, ...config.comment, previous: previous(videoId),
     });
     if (!v.ok) {
       store.add({ ...row, status: 'blocked', reason: `검증 실패: ${v.errors.join(', ')}` });
@@ -152,6 +169,8 @@ const routes = {
   'GET /api/job': (_, q) => jobs.get(q.get('id')) || { status: 404, error: '작업 없음' },
 
   'GET /api/logs': () => ({ logs: store.list() }),
+
+  'GET /api/post-state': async (_, q) => postState(videoOf(await context(q.get('videoId')))),
 
   'POST /api/rising': async () => {
     const videos = await findRising(config.rising);
