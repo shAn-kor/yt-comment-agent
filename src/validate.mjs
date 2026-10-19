@@ -43,6 +43,14 @@ export function longestCommon(a, b) {
   return best;
 }
 
+// 정규화된 조각을 원문에서 다시 찾는다 (공백·문장부호를 건너뛰며). 미리보기 강조용.
+function locate(text, normalized) {
+  if (!normalized) return '';
+  const parts = [...normalized].map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const m = text.match(new RegExp(parts.join('[^\\p{L}\\p{N}]*'), 'iu'));
+  return m ? m[0] : '';
+}
+
 /**
  * @param {string} comment
  * @param {{source?: string, detail?: string, brand?: string, min?: number, max?: number, previous?: string[]}} opts
@@ -51,40 +59,44 @@ export function longestCommon(a, b) {
 export function validateComment(comment, opts = {}) {
   const { source = '', detail = '', brand = '운명원', min = 40, max = 120, previous = [] } = opts;
   const text = String(comment ?? '').trim();
-  const errors = [];
   const chars = countChars(text);
+  const checks = [];
+  const add = (key, label, ok, note = '') => checks.push({ key, label, ok, note });
 
-  if (chars < min || chars > max) errors.push(`글자 수 ${chars}자 (기준 ${min}~${max}자)`);
+  add('length', `${min}~${max}자`, chars >= min && chars <= max, `글자 수 ${chars}자 (기준 ${min}~${max}자)`);
 
   const brandCount = text.split(brand).length - 1;
-  if (brandCount === 0) errors.push(`"${brand}"이(가) 없음`);
-  if (brandCount > 1) errors.push(`"${brand}"이(가) ${brandCount}번 나옴 (1번만)`);
+  const brandNote =
+    brandCount === 0 ? `"${brand}"이(가) 없음` : brandCount > 1 ? `"${brand}"이(가) ${brandCount}번 나옴 (1번만)` : '';
+  add('brand', `"${brand}" 한 번`, brandCount === 1, brandNote);
 
-  if (LINK.test(text)) errors.push('링크 금지');
-  if (HASHTAG.test(text)) errors.push('해시태그 금지');
+  const link = LINK.test(text);
+  const tag = HASHTAG.test(text);
+  add('link', '링크·해시태그 없음', !link && !tag, [link && '링크 금지', tag && '해시태그 금지'].filter(Boolean).join(', '));
 
   const fake = text
     .split(/[.!?…\n]+/)
     .filter((s) => s.includes(brand))
     .map((s) => s.match(FAKE_USE))
     .find(Boolean);
-  if (fake) errors.push(`${brand}을(를) 이용해 본 것처럼 읽힘 ("${fake[0]}")`);
+  add('fake', '이용 후기처럼 쓰지 않음', !fake, fake ? `${brand}을(를) 이용해 본 것처럼 읽힘 ("${fake[0]}")` : '');
 
   // 영상 속 장면·말: 모델이 밝힌 인용구가 원문과 댓글 모두에 있거나, 원문과 6자 이상 겹쳐야 한다
   const src = norm(source);
   const body = norm(text.split(brand).join(' '));
   const d = norm(detail);
   let anchor = '';
-  if (d.length >= 3 && src.includes(d) && body.includes(d)) anchor = detail;
+  if (d.length >= 3 && src.includes(d) && body.includes(d)) anchor = locate(text, d) || detail;
   else {
     const common = longestCommon(body, src);
-    if (common.length >= 6) anchor = common;
+    if (common.length >= 6) anchor = locate(text, common) || common;
   }
-  if (!src) errors.push('영상 자료가 없어 장면 확인 불가');
-  else if (!anchor) errors.push('영상 속 장면·말이 댓글에 없음');
+  const anchorNote = !src ? '영상 자료가 없어 장면 확인 불가' : anchor ? '' : '영상 속 장면·말이 댓글에 없음';
+  add('anchor', '영상 속 장면·말 포함', !!src && !!anchor, anchorNote);
 
   const dup = previous.find((p) => p && similarity(text, p) >= 0.5);
-  if (dup) errors.push('이전 댓글과 너무 비슷함');
+  add('unique', '이전 댓글과 다름', !dup, dup ? '이전 댓글과 너무 비슷함' : '');
 
-  return { ok: errors.length === 0, errors, chars, anchor };
+  const errors = checks.filter((c) => !c.ok).map((c) => c.note);
+  return { ok: errors.length === 0, errors, checks, chars, anchor };
 }
