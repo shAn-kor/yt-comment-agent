@@ -1,0 +1,25 @@
+# 내 컴퓨터의 크롬 프로필. 폴더는 처음 로그인할 때 만들어진다 (npm run login -- 유튜브1)
+profiles:
+  - { name: 유튜브1, dir: ./profiles/youtube1 }
+  - { name: 유튜브2, dir: ./profiles/youtube2 }
+  - { name: 유튜브3, dir: ./profiles/youtube3 }
+
+# 불러오기 · 게시 허용 범위
+channels:
+  - { id: UCxlc0Ky0aWoD8uI09ad44Tg, name: 외롭여 }
+  - { id: UC-ee_ziASM251TMXe3P3VZA, name: 리즈시절 LizTV }
+  - { id: UC09L3JxGVcn7SKLa-pjTEmw, name: 러브커넥트 유지연 }
+  - { id: UCVdtDW-HF4KluixGaBAcI4w, name: 연애데이터 노노 }
+  - { id: UCkGl2jieOVhGiHPdXF77Yyw, name: 심리조각 }
+
+# 본인 테스트 영상 ID (예: dQw4w9WgXcQ). 링크 직접 입력과 게시가 항상 허용된다.
+test_videos: []
+
+# test_only: 테스트 영상에만 게시 / channels: 위 채널 영상에도 게시
+posting_scope: test_only
+
+comment: { min_chars: 40, max_chars: 120, brand: 운명원 }
+limits: { daily_max_comments: 10, videos_per_channel: 5 }
+
+# 뜨기 직전 영상 찾기 (초안까지만)
+rising: { query: 연애, scan: 30, min_views: 1000, max_views: 5000, min_views_per_hour: 150 }
