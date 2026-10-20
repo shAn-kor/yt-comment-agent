@@ -54,7 +54,7 @@ uv run pytest                   # 검사기·운영 규칙·API 테스트
 
 ```
 agent/server.py     FastAPI 서버와 API
-agent/youtube.py    yt-dlp 라이브러리 (채널 목록·메타·자막·인기 댓글·검색)
+agent/youtube.py    채널 RSS(실패 시 yt-dlp), yt-dlp 라이브러리 (메타·자막·인기 댓글·검색)
 agent/generate.py   프롬프트, 생성 → 검사 → 이유를 붙여 재생성 (최대 3회)
 agent/llm.py        Claude API 또는 claude CLI
 agent/validate.py   댓글 검증기
@@ -71,7 +71,7 @@ tests/              pytest
 
 - 유튜브 화면 구조가 바뀌면 `agent/poster.py`의 선택자를 고쳐야 한다.
 - 새 계정의 댓글은 유튜브 스팸 필터에 걸려 다른 사람에게 안 보일 수 있다. 확인 단계는 "내 화면에서 보임" 기준이다.
-- 채널 목록의 올린 날짜는 유튜브의 "3일 전" 같은 표시에서 계산한 근삿값이다 (날짜 단위).
+- 채널 RSS가 다시 요청해도 실패하면 '동영상' 탭으로 받는다. 이때 올린 날짜는 "3일 전" 같은 표시에서 계산한 근삿값이다 (날짜 단위).
 
 ## 사용한 오픈소스
 

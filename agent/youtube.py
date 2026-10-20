@@ -3,6 +3,8 @@
 
 import re
 import time
+import xml.etree.ElementTree as ET
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qs, quote, urlparse
 
@@ -59,9 +61,60 @@ def _iso(ts) -> str | None:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)) if ts else None
 
 
-def fetch_channel_feed(channel: Channel, limit: int = 5) -> list[dict]:
-    """채널 '동영상' 탭의 최신 영상 목록.
-    채널 RSS는 404·500이 자주 나서 쓰지 않는다. 라이브 다시보기는 '라이브' 탭에 있어 여기 섞이지 않는다.
+RSS_TRIES = 3
+RSS_WAIT = 0.5  # 초. 실패한 요청은 대개 바로 다시 하면 된다
+_ATOM = {
+    "a": "http://www.w3.org/2005/Atom",
+    "yt": "http://www.youtube.com/xml/schemas/2015",
+    "media": "http://search.yahoo.com/mrss/",
+}
+
+
+def _rss_feed(channel: Channel, limit: int) -> list[dict]:
+    """채널 RSS. 올린 시각이 정확하다. 가끔 404·500을 내서 몇 번 다시 요청한다."""
+    url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel.id}"
+    last = ""
+    for i in range(RSS_TRIES):
+        if i:
+            time.sleep(RSS_WAIT)
+        try:
+            res = httpx.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        except httpx.HTTPError as e:
+            last = type(e).__name__
+            continue
+        if res.status_code == 200:
+            break
+        last = f"HTTP {res.status_code}"
+    else:
+        raise RuntimeError(f"RSS {RSS_TRIES}번 실패 ({last})")
+
+    videos = []
+    for e in ET.fromstring(res.content).findall("a:entry", _ATOM):
+        title = e.findtext("a:title", "", _ATOM)
+        # 라이브 방송 다시보기(유튜브 자동 제목)는 자막이 없고 장면을 짚기 어려워 뺀다
+        if re.match(r"Live streaming of ", title, re.I):
+            continue
+        video_id = e.findtext("yt:videoId", "", _ATOM)
+        stats = e.find("media:group/media:community/media:statistics", _ATOM)
+        views = stats.get("views") if stats is not None else None
+        published = e.findtext("a:published", "", _ATOM)
+        videos.append(
+            {
+                "videoId": video_id,
+                "title": title,
+                "published": _iso(datetime.fromisoformat(published).timestamp()) if published else None,
+                "thumbnail": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+                "views": int(views) if views and views.isdigit() else None,
+                "channelId": channel.id,
+                "channelName": channel.name,
+            }
+        )
+    return [v for v in videos if v["videoId"]][:limit]
+
+
+def _tab_feed(channel: Channel, limit: int) -> list[dict]:
+    """채널 '동영상' 탭. RSS가 계속 실패할 때 쓴다.
+    라이브 다시보기는 '라이브' 탭에 있어 여기 섞이지 않는다.
     올린 날짜는 "3일 전" 같은 표시에서 계산한 근삿값이다.
     한국어 화면으로 받으면 yt-dlp가 날짜·조회수를 못 읽고, 영어로 받으면 제목이 번역된다.
     그래서 두 번 읽어 합친다 (한 번에 1초 안쪽)."""
@@ -72,11 +125,8 @@ def fetch_channel_feed(channel: Channel, limit: int = 5) -> list[dict]:
             url, korean=korean, extract_flat="in_playlist", playlistend=limit
         )
 
-    try:
-        with ThreadPoolExecutor(2) as pool:
-            ko, en = pool.map(listing, (True, False))
-    except RuntimeError as e:
-        raise RuntimeError(f"{channel.name} 목록 실패: {e}") from e
+    with ThreadPoolExecutor(2) as pool:
+        ko, en = pool.map(listing, (True, False))
     titles = {e.get("id"): e.get("title") for e in ko.get("entries") or []}
     return [
         {
@@ -91,6 +141,18 @@ def fetch_channel_feed(channel: Channel, limit: int = 5) -> list[dict]:
         for e in (en.get("entries") or [])[:limit]
         if e.get("id")
     ]
+
+
+def fetch_channel_feed(channel: Channel, limit: int = 5) -> list[dict]:
+    """채널 최신 영상. RSS를 먼저 쓰고, 다시 요청해도 실패하면 '동영상' 탭으로 넘어간다.
+    영상마다 어느 방법으로 받았는지 via("rss" | "tab")에 적는다."""
+    try:
+        return [{**v, "via": "rss"} for v in _rss_feed(channel, limit)]
+    except Exception as rss_error:
+        try:
+            return [{**v, "via": "tab"} for v in _tab_feed(channel, limit)]
+        except RuntimeError as e:
+            raise RuntimeError(f"{channel.name} 목록 실패: {rss_error}, {e}") from e
 
 
 def _pick_caption(info: dict) -> tuple[str, str] | None:

@@ -199,8 +199,15 @@ $("#load").onclick = () =>
     renderChips();
     renderList();
     renderSteps();
+    // RSS가 실패해 '동영상' 탭으로 받은 채널은 올린 날짜가 근삿값이다
+    const fallback = [
+      ...new Set(
+        videos.filter((v) => v.via === "tab").map((v) => v.channelName),
+      ),
+    ];
     listMsg(
       `${videos.length}개 영상 · 5개 채널` +
+        (fallback.length ? ` · 날짜 어림값: ${fallback.join(", ")}` : "") +
         (errors.length ? ` · 실패: ${errors.join(", ")}` : ""),
     );
   });
