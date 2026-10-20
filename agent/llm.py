@@ -1,36 +1,196 @@
-"""프롬프트 하나를 보내고 글을 받는다. 키가 있으면 Claude API, 없으면 로컬 claude CLI."""
+"""프롬프트 하나를 보내고 글을 받는다.
+
+LLM_PROVIDER로 고른다: claude | gemini | groq | openrouter | ollama.
+비어 있으면 키가 있는 곳 → claude CLI → Ollama 순서로 고른다.
+"""
 
 import os
+import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 
 import httpx
 
 
+@dataclass(frozen=True)
+class Provider:
+    name: str  # 화면에 보일 이름
+    base_url: str  # OpenAI 호환 주소 (끝의 /chat/completions 제외)
+    key_env: str  # API 키 환경 변수 (없으면 빈 문자열)
+    model: str  # 기본 모델
+    timeout: int = 120
+
+
+# 무료 등급 기준 기본 모델. 2026-10-20 공식 문서로 확인.
+OPENAI_COMPATIBLE = {
+    "gemini": Provider(
+        "Gemini",
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+        "GEMINI_API_KEY",
+        "gemini-3.8-flash",
+    ),
+    "groq": Provider(
+        "Groq",
+        "https://api.groq.com/openai/v1",
+        "GROQ_API_KEY",
+        "openai/gpt-oss-120b",
+    ),
+    "openrouter": Provider(
+        "OpenRouter",
+        "https://openrouter.ai/api/v1",
+        "OPENROUTER_API_KEY",
+        "google/gemma-4-31b-it:free",
+    ),
+    # 키 없음. 주소는 OLLAMA_HOST, 자체 API(/api/chat)를 쓴다
+    "ollama": Provider("Ollama", "", "", "gemma4:12b", timeout=300),
+}
+PROVIDERS = ("claude", *OPENAI_COMPATIBLE)
+
+
+def provider_name() -> str:
+    """LLM_PROVIDER 값. 비어 있으면 쓸 수 있는 것을 고른다."""
+    name = os.environ.get("LLM_PROVIDER", "").strip().lower()
+    if name:
+        if name not in PROVIDERS:
+            raise ValueError(
+                f"LLM_PROVIDER 값이 이상함: {name} (가능: {', '.join(PROVIDERS)})"
+            )
+        return name
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "claude"
+    for key, p in OPENAI_COMPATIBLE.items():
+        if p.key_env and os.environ.get(p.key_env):
+            return key
+    if shutil.which(os.environ.get("CLAUDE_CLI", "claude")):
+        return "claude"
+    return "ollama"  # 키도 claude CLI도 없으면 내 컴퓨터의 모델
+
+
+def _model(default: str) -> str:
+    return os.environ.get("LLM_MODEL", "") or default
+
+
 def backend_name() -> str:
-    return "Claude API" if os.environ.get("ANTHROPIC_API_KEY") else "claude CLI"
+    try:
+        name = provider_name()
+    except ValueError as e:
+        return f"설정 오류 · {e}"
+    if name == "claude":
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            return f"Claude API · {_model('claude-sonnet-5-5')}"
+        return "claude CLI"
+    p = OPENAI_COMPATIBLE[name]
+    return f"{p.name} · {_model(p.model)}"
 
 
 def complete(prompt: str) -> str:
-    model = os.environ.get("LLM_MODEL", "")
-    if key := os.environ.get("ANTHROPIC_API_KEY"):
-        res = httpx.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
-            json={
-                "model": model or "claude-sonnet-5-5",
-                "max_tokens": 1024,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=120,
-        )
-        data = res.json()
-        if res.status_code != 200:
-            raise RuntimeError(
-                f"Claude API 오류: {data.get('error', {}).get('message') or res.status_code}"
-            )
-        return "".join(b["text"] for b in data["content"] if b["type"] == "text")
+    name = provider_name()
+    if name == "claude":
+        if key := os.environ.get("ANTHROPIC_API_KEY"):
+            return _claude_api(prompt, key)
+        return _claude_cli(prompt)
+    return _openai_compatible(OPENAI_COMPATIBLE[name], prompt)
 
+
+def _post(p: Provider, url: str, body: dict, headers: dict | None = None) -> dict:
+    try:
+        res = httpx.post(url, headers=headers or {}, json=body, timeout=p.timeout)
+    except httpx.ConnectError as e:
+        if p.name == "Ollama":
+            raise RuntimeError(
+                f"Ollama에 연결하지 못함 ({url}). `ollama serve`로 켰는지 확인"
+            ) from e
+        raise RuntimeError(f"{p.name} 연결 실패: {e}") from e
+    except httpx.TimeoutException as e:
+        raise RuntimeError(f"{p.name} 시간 초과 ({p.timeout}초)") from e
+    try:
+        data = res.json()
+    except ValueError:
+        data = {}
+    if res.status_code != 200:
+        if isinstance(data, list) and data:  # Gemini는 [{error: …}]로 줄 때가 있다
+            data = data[0]
+        err = data.get("error") if isinstance(data, dict) else None
+        msg = err.get("message") if isinstance(err, dict) else err
+        hint = (
+            " (무료 한도 초과일 수 있음. 잠시 뒤 다시 시도)"
+            if res.status_code == 429
+            else ""
+        )
+        raise RuntimeError(
+            f"{p.name} 오류 {res.status_code}: {msg or res.text[:200]}{hint}"
+        )
+    return data
+
+
+def _text(p: Provider, content) -> str:
+    if not content:
+        raise RuntimeError(f"{p.name}가 빈 답을 돌려줌")
+    return content
+
+
+def _openai_compatible(p: Provider, prompt: str) -> str:
+    if p.name == "Ollama":
+        return _ollama(p, prompt)
+    key = os.environ.get(p.key_env)
+    if not key:
+        raise RuntimeError(f"{p.name}: .env에 {p.key_env}가 없음")
+    data = _post(
+        p,
+        f"{p.base_url}/chat/completions",
+        {"model": _model(p.model), "messages": [{"role": "user", "content": prompt}]},
+        {"Authorization": f"Bearer {key}"},
+    )
+    try:
+        return _text(p, data["choices"][0]["message"]["content"])
+    except (KeyError, IndexError, TypeError) as e:
+        raise RuntimeError(f"{p.name} 응답 형식이 예상과 다름") from e
+
+
+def _ollama(p: Provider, prompt: str) -> str:
+    """Ollama 자체 API. OpenAI 호환 주소로는 문맥 길이(num_ctx)를 정할 수 없다.
+    기본 4096토큰이면 긴 자막에서 프롬프트 앞부분(규칙)이 잘린다."""
+    host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+    if not host.startswith("http"):  # OLLAMA_HOST=127.0.0.1:11434 형태
+        host = "http://" + host
+    data = _post(
+        p,
+        f"{host}/api/chat",
+        {
+            "model": _model(p.model),
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "options": {"num_ctx": int(os.environ.get("OLLAMA_NUM_CTX", "16384"))},
+        },
+    )
+    try:
+        return _text(p, data["message"]["content"])
+    except (KeyError, TypeError) as e:
+        raise RuntimeError("Ollama 응답 형식이 예상과 다름") from e
+
+
+def _claude_api(prompt: str, key: str) -> str:
+    res = httpx.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
+        json={
+            "model": _model("claude-sonnet-5-5"),
+            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": prompt}],
+        },
+        timeout=120,
+    )
+    data = res.json()
+    if res.status_code != 200:
+        raise RuntimeError(
+            f"Claude API 오류: {data.get('error', {}).get('message') or res.status_code}"
+        )
+    return "".join(b["text"] for b in data["content"] if b["type"] == "text")
+
+
+def _claude_cli(prompt: str) -> str:
+    model = os.environ.get("LLM_MODEL", "")
     cmd = [os.environ.get("CLAUDE_CLI", "claude"), "-p", "--output-format", "text"] + (
         ["--model", model] if model else []
     )
