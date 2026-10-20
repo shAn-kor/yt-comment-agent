@@ -24,13 +24,14 @@ class Provider:
 
 
 # 무료 등급 기준 기본 모델. 2026-10-20 공식 문서로 확인.
+# Gemini는 실제 영상 11건 비교에서 통과율이 같고 가장 빨라 3.5 Flash를 쓴다 (docs/IMPLEMENTATION.md 4장).
 OPENAI_COMPATIBLE = {
     "gemini": Provider(
         "Gemini",
         "https://generativelanguage.googleapis.com/v1beta/openai",
         "GEMINI_API_KEY",
         "https://aistudio.google.com/apikey",
-        "gemini-3.8-flash",
+        "gemini-3.5-flash",
     ),
     "groq": Provider(
         "Groq",

@@ -31,7 +31,7 @@ def calls(monkeypatch):
 
 def test_키도_CLI도_없으면_Gemini_키_안내(calls):
     assert llm.provider_name() == "gemini"
-    assert llm.backend_name() == "Gemini · gemini-3.8-flash"
+    assert llm.backend_name() == "Gemini · gemini-3.5-flash"
     with pytest.raises(RuntimeError, match="aistudio.google.com/apikey"):
         llm.complete("p")
     assert calls == []
@@ -72,7 +72,7 @@ def test_이상한_LLM_PROVIDER는_오류(monkeypatch):
             "gemini",
             "GEMINI_API_KEY",
             "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-            "gemini-3.8-flash",
+            "gemini-3.5-flash",
         ),
         (
             "groq",

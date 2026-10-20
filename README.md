@@ -34,7 +34,7 @@ uv run python scripts/login.py 유튜브1     # 일반 Chrome이 열린다. 테�
 
 | `LLM_PROVIDER` | 기본 모델                    | 비용·키                                                    | 준비                                                               |
 | -------------- | ---------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------ |
-| `gemini`       | `gemini-3.8-flash`           | 무료 등급 있음. 무료 등급 입력은 Google 제품 개선에 쓰인다 | [Google AI Studio](https://aistudio.google.com/apikey)에서 키 발급 |
+| `gemini`       | `gemini-3.5-flash`           | 무료 등급 있음. 무료 등급 입력은 Google 제품 개선에 쓰인다 | [Google AI Studio](https://aistudio.google.com/apikey)에서 키 발급 |
 | `groq`         | `openai/gpt-oss-120b`        | 무료 플랜: 분당 30회, 하루 1,000회, 분당 8,000토큰         | [Groq 콘솔](https://console.groq.com/keys)에서 키 발급             |
 | `openrouter`   | `google/gemma-4-31b-it:free` | `:free` 모델은 무료. 하루 요청 수 제한 있음                | [OpenRouter](https://openrouter.ai/settings/keys)에서 키 발급      |
 | `claude`       | `claude-sonnet-5-5`          | 유료 API 키 또는 `claude` CLI 로그인                       | 기존 방식 그대로                                                   |
