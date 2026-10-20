@@ -79,3 +79,23 @@ def test_둘_다_실패하면_두_이유를_함께(rss, monkeypatch):
     monkeypatch.setattr(youtube, "_tab_feed", broken)
     with pytest.raises(RuntimeError, match="테스트 채널 목록 실패: RSS 3번 실패 \\(HTTP 500\\), yt-dlp 실패"):
         youtube.fetch_channel_feed(CH)
+
+
+def test_yt_dlp_오류는_읽을_수_있는_말로(monkeypatch):
+    class Boom:
+        def __init__(self, *_):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def extract_info(self, *_, **__):
+            raise Exception("ERROR: [youtube] zzzzzzzzzzx: 이 동영상은 볼 수 없습니다.")
+
+    monkeypatch.setattr("agent.youtube.YoutubeDL", Boom)
+    with pytest.raises(RuntimeError) as e:
+        youtube.get_video_context("zzzzzzzzzzx", comments=False)
+    assert str(e.value) == "영상 정보를 가져오지 못함: 이 동영상은 볼 수 없습니다."

@@ -41,16 +41,24 @@ const state = {
   draft: null,
   profile: "auto",
   posted: false,
+  posting: false, // 게시 중에는 다른 영상을 고르지 못하게 한다
   logFilter: "all",
   timer: null,
 };
 
 async function api(method, url, body) {
-  const res = await fetch(url, {
-    method,
-    headers: body ? { "content-type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: body ? { "content-type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error(
+      "서버에 연결할 수 없습니다. 터미널에서 서버가 켜져 있는지 확인하세요 (uv run python -m agent.server)",
+    );
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
@@ -95,12 +103,13 @@ async function loadConfig() {
 
 function renderProfiles() {
   const c = state.config;
+  const readyCount = c.profiles.filter((p) => p.ready).length;
   const rows = [
     {
       name: "auto",
       label: "자동 배정",
-      state: "가장 오래 안 쓴 계정",
-      ready: true,
+      state: readyCount ? "가장 오래 안 쓴 계정" : "로그인된 계정 없음",
+      ready: readyCount > 0,
     },
   ].concat(
     c.profiles.map((p) => ({
@@ -120,7 +129,11 @@ function renderProfiles() {
     )
     .join("");
   $$("#profiles input").forEach(
-    (i) => (i.onchange = () => (state.profile = i.value)),
+    (i) =>
+      (i.onchange = () => {
+        state.profile = i.value;
+        renderPostChecks();
+      }),
   );
 }
 
@@ -180,14 +193,15 @@ function listMsg(text, bad = false) {
 
 async function busy(btn, label, fn) {
   const old = btn.innerHTML;
-  btn.disabled = true;
+  const buttons = [$("#load"), $("#rising")];
+  buttons.forEach((b) => (b.disabled = true));
   btn.textContent = label;
   try {
     await fn();
   } catch (e) {
     listMsg(e.message, true);
   } finally {
-    btn.disabled = false;
+    buttons.forEach((b) => (b.disabled = false));
     btn.innerHTML = old;
   }
 }
@@ -232,6 +246,7 @@ $("#linkForm").onsubmit = async (e) => {
     select(video);
   } catch (err) {
     listMsg(err.message, true);
+    loadLogs().catch(() => {}); // 차단도 기록에 남으므로 표를 바로 갱신
   }
 };
 
@@ -273,6 +288,12 @@ function videoCard(v) {
 }
 
 async function select(video) {
+  if (state.posting) {
+    $("#postReason").className = "note center bad";
+    $("#postReason").textContent =
+      "게시가 끝난 뒤에 다른 영상을 고를 수 있습니다.";
+    return;
+  }
   clearInterval(state.timer);
   Object.assign(state, { selected: video, draft: null, posted: false });
   renderList();
@@ -281,10 +302,14 @@ async function select(video) {
   const started = Date.now();
   const paint = () => {
     const sec = Math.round((Date.now() - started) / 1000);
+    const note =
+      sec < 60
+        ? "보통 15초~1분 걸립니다. 규칙에 맞지 않으면 이유를 알려 주고 다시 씁니다."
+        : `AI(${state.config.llm}) 응답이 평소보다 느립니다. 2분을 넘기면 실패 이유를 알려 드립니다.`;
     $("#detail").innerHTML = `${videoCard(video)}
       <div class="loading">
         <p>자막과 인기 댓글을 읽고 초안을 쓰는 중 · ${sec}초</p>
-        <p class="note">보통 15초~1분 걸립니다. 규칙에 맞지 않으면 이유를 알려 주고 다시 씁니다.</p>
+        <p class="note">${esc(note)}</p>
       </div>`;
   };
   paint();
@@ -302,9 +327,13 @@ async function select(video) {
     clearInterval(state.timer);
     renderDetail();
   } catch (e) {
+    if (state.selected?.videoId !== video.videoId) return;
     clearInterval(state.timer);
+    const hint = /시간 초과|한도 초과/.test(e.message)
+      ? "<p class=\"note\">잠시 뒤 다시 시도하거나, .env의 LLM_PROVIDER로 다른 AI를 고르세요.</p>"
+      : "";
     $("#detail").innerHTML = `${videoCard(video)}
-      <div class="loading"><p class="note bad">${esc(e.message)}</p><button class="btn" id="retry">${icon("reload")}다시 시도</button></div>`;
+      <div class="loading"><p class="note bad">${esc(e.message)}</p>${hint}<button class="btn" id="retry">${icon("reload")}다시 시도</button></div>`;
     $("#retry").onclick = () => select(video);
   }
 }
@@ -347,6 +376,8 @@ function renderDetail() {
 
   let t;
   $("#comment").oninput = () => {
+    $("#post").disabled = true; // 다시 검사가 끝날 때까지
+    $("#chars").textContent = `${[...$("#comment").value.trim()].length}자`;
     renderPreview($("#comment").value, d.validation.anchor);
     clearTimeout(t);
     t = setTimeout(revalidate, 300);
@@ -380,13 +411,31 @@ function renderPreview(text, anchor) {
   $("#previewText").innerHTML = html + esc(text.slice(pos));
 }
 
+let checkSeq = 0; // 늦게 온 이전 검사 결과가 새 결과를 덮지 않게
 async function revalidate() {
+  const seq = ++checkSeq;
   const comment = $("#comment").value;
-  const v = await api("POST", "/api/validate", {
-    videoId: state.selected.videoId,
-    comment,
-    detail: state.draft.detail,
-  });
+  let v;
+  try {
+    v = await api("POST", "/api/validate", {
+      videoId: state.selected.videoId,
+      comment,
+      detail: state.draft.detail,
+    });
+  } catch (e) {
+    v = {
+      ok: false,
+      chars: [...comment.trim()].length,
+      anchor: "",
+      errors: [`다시 검사하지 못함: ${e.message}`],
+      checks: state.draft.validation.checks.map((c) => ({
+        ...c,
+        ok: false,
+        note: "검사하지 못함",
+      })),
+    };
+  }
+  if (seq !== checkSeq) return;
   state.draft.validation = v;
   state.draft.comment = comment;
   showValidation(v);
@@ -432,6 +481,7 @@ function renderPostChecks() {
         : `${d.validation.errors.length}개 항목을 고쳐 주세요`,
     },
     ...d.post.checks,
+    accountCheck(),
   ];
   $("#postChecks").innerHTML = items
     .map(
@@ -445,6 +495,26 @@ function renderPostChecks() {
   $("#postReason").textContent = blocked
     ? ""
     : "누르면 크롬 창이 열리고 화면에서 직접 입력합니다.";
+}
+
+function accountCheck() {
+  const profiles = state.config.profiles;
+  const login = (name) =>
+    `uv run python scripts/login.py ${name} 로 먼저 로그인하세요`;
+  if (state.profile === "auto") {
+    const n = profiles.filter((p) => p.ready).length;
+    return {
+      label: n ? `로그인된 계정 ${n}개 중 자동 배정` : "로그인된 계정",
+      ok: n > 0,
+      note: n ? "" : login(profiles[0]?.name ?? "유튜브1"),
+    };
+  }
+  const ready = profiles.find((p) => p.name === state.profile)?.ready;
+  return {
+    label: `${state.profile} 로그인`,
+    ok: !!ready,
+    note: ready ? "" : login(state.profile),
+  };
 }
 
 function resetPost() {
@@ -479,15 +549,23 @@ function showStep(status, started, failed = false) {
   });
 }
 
+function markCommented(target) {
+  target.commented = true;
+  const v = state.videos.find((x) => x.videoId === target.videoId);
+  if (v) v.commented = true;
+}
+
 $("#post").onclick = async () => {
   const d = state.draft;
+  const target = state.selected; // 게시 중 선택이 바뀌어도 결과는 이 영상에 붙인다
+  state.posting = true;
   $("#post").disabled = true;
   resetPost();
   $("#post").disabled = true;
   const started = Date.now();
   try {
     const { jobId, profile } = await api("POST", "/api/post", {
-      videoId: state.selected.videoId,
+      videoId: target.videoId,
       comment: $("#comment").value,
       detail: d.detail,
       profile: state.profile,
@@ -498,9 +576,7 @@ $("#post").onclick = async () => {
     if (job.ok) {
       showStep("게시 완료", started);
       state.posted = true;
-      state.selected.commented = true;
-      const v = state.videos.find((x) => x.videoId === state.selected.videoId);
-      if (v) v.commented = true;
+      markCommented(target);
       $("#result").innerHTML =
         `<div class="result ok"><strong>게시 완료</strong>
         <p>${esc(profile)} 계정 · ${Math.round((Date.now() - started) / 1000)}초</p>
@@ -510,9 +586,7 @@ $("#post").onclick = async () => {
       // 게시 버튼은 눌렀지만 내 댓글을 못 봄: 다시 달지 않도록 게시된 것으로 다룬다
       showStep(job.lastStep, started, true);
       state.posted = true;
-      state.selected.commented = true;
-      const v = state.videos.find((x) => x.videoId === state.selected.videoId);
-      if (v) v.commented = true;
+      markCommented(target);
       $("#result").innerHTML =
         `<div class="result warn"><strong>게시됨 · 확인 안 됨</strong><p>${esc(job.error)}</p>
         <p>올라갔을 수 있어 이 영상에는 다시 달 수 없습니다. 유튜브에서 직접 확인하세요.</p>
@@ -527,9 +601,10 @@ $("#post").onclick = async () => {
     $("#postReason").className = "note center bad";
     $("#postReason").textContent = e.message;
   }
+  state.posting = false;
   d.post = await api(
     "GET",
-    `/api/post-state?videoId=${encodeURIComponent(state.selected.videoId)}`,
+    `/api/post-state?videoId=${encodeURIComponent(target.videoId)}`,
   ).catch(() => d.post);
   renderList();
   renderSteps();
@@ -587,6 +662,13 @@ $$("#logFilter button").forEach(
       $$("#logFilter button").forEach((x) => x.classList.toggle("on", x === b));
       renderLogs();
     }),
+);
+
+// 터미널에서 login.py를 돌리고 화면으로 돌아오면 계정 상태를 다시 읽는다
+addEventListener("focus", () =>
+  loadConfig()
+    .then(renderPostChecks)
+    .catch(() => {}),
 );
 
 loadConfig()

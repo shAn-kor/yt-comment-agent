@@ -62,7 +62,10 @@ def _extract(
         with YoutubeDL({**base, **opts}) as ydl:
             return ydl.extract_info(url, download=False)
     except Exception as e:  # yt-dlp는 여러 종류의 예외를 낸다
-        raise RuntimeError(f"yt-dlp 실패: {str(e).strip().splitlines()[-1]}") from e
+        # "ERROR: [youtube] abc: 이 동영상은 볼 수 없습니다." → "영상 정보를 가져오지 못함: 이 동영상은 볼 수 없습니다."
+        last = str(e).strip().splitlines()[-1]
+        reason = re.sub(r"^ERROR:\s*(\[[^\]]*\]\s*)?([\w-]+:\s*)?", "", last)
+        raise RuntimeError(f"영상 정보를 가져오지 못함: {reason}") from e
 
 
 def _iso(ts) -> str | None:
