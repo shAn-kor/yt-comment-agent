@@ -6,7 +6,7 @@
 
 ## 준비
 
-필요한 것: [uv](https://docs.astral.sh/uv/), Google Chrome, AI 하나 (`claude` CLI 로그인 또는 Anthropic API 키). Python과 라이브러리(yt-dlp 포함)는 uv가 설치한다.
+필요한 것: [uv](https://docs.astral.sh/uv/), Google Chrome, AI 하나 (아래 [AI 고르기](#ai-고르기)). 무료 모델로도 된다. Python과 라이브러리(yt-dlp 포함)는 uv가 설치한다.
 
 ```bash
 uv sync                                   # Playwright 브라우저는 받지 않아도 된다 (설치된 Chrome 사용)
@@ -17,12 +17,36 @@ uv run python scripts/login.py 유튜브1     # 일반 Chrome이 열린다. 테�
 
 선택: 프로젝트 폴더에 `.env` 파일을 만들면 아래 값을 읽는다.
 
-| 이름                | 뜻                                                |
-| ------------------- | ------------------------------------------------- |
-| `ANTHROPIC_API_KEY` | 있으면 Claude API, 없으면 로컬 `claude` CLI       |
-| `LLM_MODEL`         | 모델 이름 (API 기본값 `claude-sonnet-5-5`)        |
-| `CHROME_PATH`       | Chrome 실행 파일 경로 (macOS 기본 경로가 아닐 때) |
-| `PORT`              | 기본 4310                                         |
+| 이름                 | 뜻                                                       |
+| -------------------- | -------------------------------------------------------- |
+| `LLM_PROVIDER`       | `claude` · `gemini` · `groq` · `openrouter`. 비우면 자동 |
+| `LLM_MODEL`          | 모델 이름. 비우면 아래 표의 기본 모델                    |
+| `ANTHROPIC_API_KEY`  | Claude API 키. 없으면 로컬 `claude` CLI                  |
+| `GEMINI_API_KEY`     | Gemini API 키                                            |
+| `GROQ_API_KEY`       | Groq API 키                                              |
+| `OPENROUTER_API_KEY` | OpenRouter API 키                                        |
+| `CHROME_PATH`        | Chrome 실행 파일 경로 (macOS 기본 경로가 아닐 때)        |
+| `PORT`               | 기본 4310                                                |
+
+### AI 고르기
+
+`LLM_PROVIDER`를 비우면 이 순서로 고른다: Claude API 키 → Gemini·Groq·OpenRouter 키 → 설치된 `claude` CLI. 아무것도 없으면 Gemini를 고르고, 무료 키 받는 곳을 오류 문구로 알려 준다.
+
+| `LLM_PROVIDER` | 기본 모델                    | 비용·키                                                    | 준비                                                               |
+| -------------- | ---------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------ |
+| `gemini`       | `gemini-3.8-flash`           | 무료 등급 있음. 무료 등급 입력은 Google 제품 개선에 쓰인다 | [Google AI Studio](https://aistudio.google.com/apikey)에서 키 발급 |
+| `groq`         | `openai/gpt-oss-120b`        | 무료 플랜: 분당 30회, 하루 1,000회, 분당 8,000토큰         | [Groq 콘솔](https://console.groq.com/keys)에서 키 발급             |
+| `openrouter`   | `google/gemma-4-31b-it:free` | `:free` 모델은 무료. 하루 요청 수 제한 있음                | [OpenRouter](https://openrouter.ai/settings/keys)에서 키 발급      |
+| `claude`       | `claude-sonnet-5-5`          | 유료 API 키 또는 `claude` CLI 로그인                       | 기존 방식 그대로                                                   |
+
+예: Gemini 무료 키로 돌리기
+
+```bash
+echo "LLM_PROVIDER=gemini" >> .env
+echo "GEMINI_API_KEY=발급받은-키" >> .env
+```
+
+무료 한도와 모델 이름은 2026-10-20에 공식 문서로 확인했다. 바뀔 수 있다. 무료 한도를 넘으면 오류 문구에 "무료 한도 초과일 수 있음"이 붙는다.
 
 ## 실행
 
@@ -56,7 +80,7 @@ uv run pytest                   # 검사기·운영 규칙·API 테스트
 agent/server.py     FastAPI 서버와 API
 agent/youtube.py    채널 RSS(실패 시 yt-dlp), yt-dlp 라이브러리 (메타·자막·인기 댓글·검색)
 agent/generate.py   프롬프트, 생성 → 검사 → 이유를 붙여 재생성 (최대 3회)
-agent/llm.py        Claude API 또는 claude CLI
+agent/llm.py        AI 연결 (Claude · Gemini · Groq · OpenRouter)
 agent/validate.py   댓글 검증기
 agent/rules.py      운영 규칙
 agent/store.py      SQLite 기록

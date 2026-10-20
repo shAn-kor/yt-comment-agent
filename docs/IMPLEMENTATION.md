@@ -10,7 +10,7 @@
    ▼
 FastAPI 서버 agent/server.py  ──  127.0.0.1:4310, 내 컴퓨터에서만 접속
    ├─ 영상 자료     agent/youtube.py   yt-dlp 라이브러리
-   ├─ 초안 생성     agent/generate.py  → agent/llm.py (Claude API 또는 claude CLI)
+   ├─ 초안 생성     agent/generate.py  → agent/llm.py (Claude · Gemini · Groq · OpenRouter)
    ├─ 댓글 검사     agent/validate.py
    ├─ 운영 규칙     agent/rules.py
    ├─ 기록 저장     agent/store.py     SQLite (data/agent.db)
@@ -78,10 +78,33 @@ FastAPI 서버 agent/server.py  ──  127.0.0.1:4310, 내 컴퓨터에서만 �
 
 ### AI 연결 (`llm.py`)
 
-- `.env`에 `ANTHROPIC_API_KEY`가 있으면 HTTPX로 Claude API를 부른다.
-- 키가 없으면 내 컴퓨터의 `claude` CLI를 부른다 (`claude -p`). CLI는 임시 폴더에서 실행한다. 프로젝트 폴더에서 실행하면 그 폴더의 지침 파일을 읽어서 답이 흔들리기 때문이다.
-- 180초가 지나면 끊고 오류를 알려 준다.
-- 다른 AI 모델(무료 모델 포함)을 붙일 자리는 `complete()` 한 곳이다. [TODO](../TODO.md)에 계획이 있다.
+심사자가 Claude 계정이나 유료 키 없이도 돌려 볼 수 있게 무료 모델을 붙였다. 초안 생성 코드(`generate.py`)는 `complete(prompt) -> str` 하나만 부른다. 어느 AI를 쓰든 이 모양은 같다.
+
+**고르는 순서 (`provider_name`)**
+
+1. `.env`의 `LLM_PROVIDER`가 있으면 그 값을 쓴다. 목록에 없는 값이면 오류를 낸다. 화면 위쪽에도 "설정 오류"가 보인다.
+2. 비어 있으면 키를 찾는다: `ANTHROPIC_API_KEY` → `GEMINI_API_KEY` → `GROQ_API_KEY` → `OPENROUTER_API_KEY`.
+3. 키가 없으면 설치된 `claude` CLI를 쓴다. 기존 사용자는 설정을 바꾸지 않아도 전과 같이 동작한다.
+4. 그것도 없으면 Gemini를 고른다. 키가 없으므로 요청을 보내지 않고 "무료 키는 aistudio.google.com/apikey에서 받는다"는 오류를 보여 준다.
+
+**공급자별 연결**
+
+| 공급자     | 주소                                              | 기본 모델                    | 무료 범위 (2026-10-20 공식 문서)                        |
+| ---------- | ------------------------------------------------- | ---------------------------- | ------------------------------------------------------- |
+| Gemini     | `generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.8-flash`           | 무료 등급에서 입력·출력 무료. 한도는 AI Studio에서 확인 |
+| Groq       | `api.groq.com/openai/v1`                          | `openai/gpt-oss-120b`        | 분당 30회, 하루 1,000회, 분당 8,000토큰                 |
+| OpenRouter | `openrouter.ai/api/v1`                            | `google/gemma-4-31b-it:free` | 이름이 `:free`로 끝나는 모델. 분당·하루 요청 수 제한    |
+| Claude     | `api.anthropic.com/v1/messages` 또는 `claude -p`  | `claude-sonnet-5-5`          | 무료 아님                                               |
+
+- Gemini, Groq, OpenRouter는 모두 OpenAI의 `/chat/completions` 형식을 받는다. 그래서 요청 코드 하나(`_openai_compatible`)를 같이 쓰고 주소, 키 이름, 기본 모델만 표(`OPENAI_COMPATIBLE`)로 나눈다. 새 공급자도 표에 한 줄을 더하면 된다.
+- 시간 제한은 API 120초, `claude` CLI 180초다.
+- 오류는 화면에서 바로 이해할 수 있는 말로 바꾼다. 키가 없으면 "`.env`에 `GEMINI_API_KEY`가 없음"과 키 발급 주소, 429면 "무료 한도 초과일 수 있음"을 붙인다.
+- `claude` CLI는 임시 폴더에서 실행한다. 프로젝트 폴더에서 실행하면 그 폴더의 지침 파일을 읽어서 답이 흔들리기 때문이다.
+- 화면 위쪽의 "AI · …" 표시는 `backend_name()`이 정한다. 예: `Gemini · gemini-3.8-flash`.
+
+Ollama 같은 로컬 모델은 넣지 않았다. 심사자 컴퓨터마다 성능이 달라 초안 시간이 들쭉날쭉하고, 모델 파일(약 8GB)을 받아야 해서 "바로 실행해 보기"에 맞지 않기 때문이다.
+
+JSON 모드(`response_format`)는 쓰지 않았다. 공급자와 모델마다 지원 여부가 다르기 때문이다. 대신 `parse_json()`이 답에서 `{ … }`만 꺼내고, 실패하면 다시 요청한다 (아래 "검사 후 다시 쓰기").
 
 ### 프롬프트 (`build_prompt`)
 
@@ -219,9 +242,10 @@ FastAPI 앱이다. 요청 본문은 Pydantic 모델(`ResolveIn`, `DraftIn`, `Val
 
 ## 11. 테스트 — `tests/`
 
-`uv run pytest`로 31개를 돌린다. 외부 서비스 없이 돌아가도록 AI는 가짜 함수로, 영상 자료와 기록 저장소는 테스트용으로 바꿔 끼운다.
+`uv run pytest`로 43개를 돌린다. 외부 서비스 없이 돌아가도록 AI는 가짜 함수나 가짜 HTTP 응답으로, 영상 자료와 기록 저장소는 테스트용으로 바꿔 끼운다.
 
 - `test_validate.py`: 통과 예시, 글자 수, 브랜드 0번·2번, 링크·해시태그, 후기 표현, 브랜드 없는 문장의 "봤는데" 허용, 영상 속 말 확인, 유사도, 강조 부분이 원문 그대로인지
+- `test_llm.py`: 공급자 고르는 순서 (`LLM_PROVIDER` 우선, 키, `claude` CLI, 아무것도 없으면 Gemini 키 안내), 공급자별 주소·키·기본 모델, 키 없음·429·Gemini 목록형 오류·빈 답 처리
 - `test_generate.py`: JSON 꺼내기, 실패 이유를 붙여 다시 쓰는지, JSON이 아닌 답이면 다시 요청하는지
 - `test_rules.py`: 허용 채널, 테스트 모드, 설정에 없는 계정 차단, 영상당 1개, 하루 상한(다음 날 풀림), 비교용 이전 댓글에서 같은 영상 제외, 계정 자동 배정, 한국 시간 날짜. 기록은 임시 폴더의 SQLite로 확인한다.
 - `test_youtube.py`: 링크에서 영상 ID 꺼내기, RSS 읽기(정확한 시각, 라이브 제외), 실패하면 다시 요청, 계속 실패하면 '동영상' 탭으로 넘어가기, 둘 다 실패하면 두 이유를 함께 알리기
