@@ -13,9 +13,12 @@ from playwright.async_api import async_playwright
 
 
 class PostError(Exception):
-    def __init__(self, message: str, screenshot: str | None = None):
+    def __init__(
+        self, message: str, screenshot: str | None = None, submitted: bool = False
+    ):
         super().__init__(message)
         self.screenshot = screenshot
+        self.submitted = submitted  # 게시 버튼을 누른 뒤의 실패: 댓글이 올라갔을 수 있다
 
 
 async def post_comment(
@@ -36,6 +39,12 @@ async def post_comment(
             pass
         return file
 
+    if not profile_dir.exists():
+        # 없는 폴더로 Chrome을 열면 빈 프로필이 생겨 "준비됨"처럼 보이므로 열기 전에 막는다
+        raise PostError(
+            "로그인 안 됨 — uv run python scripts/login.py <프로필 이름> 으로 먼저 로그인하세요"
+        )
+    submitted = False
     on_status("프로필 여는 중")
     async with async_playwright() as pw:
         chrome = os.environ.get("CHROME_PATH")
@@ -98,6 +107,7 @@ async def post_comment(
             await page.locator(
                 "ytd-commentbox #submit-button button, ytd-commentbox #submit-button"
             ).first.click()
+            submitted = True
 
             on_status("내 댓글 확인 중")
             mine = (
@@ -109,7 +119,9 @@ async def post_comment(
                 await mine.wait_for(state="visible", timeout=20_000)
             except Exception:
                 raise PostError(
-                    "게시 후 내 댓글이 보이지 않음", await shot(page, "not-visible")
+                    "게시 후 내 댓글이 보이지 않음 (스팸 필터에 숨겨졌을 수 있음)",
+                    await shot(page, "not-visible"),
+                    submitted=True,
                 )
             await mine.scroll_into_view_if_needed()
 
@@ -131,7 +143,9 @@ async def post_comment(
         except PostError:
             raise
         except Exception as e:
-            raise PostError(str(e).split("\n")[0], await shot(page, "error")) from e
+            raise PostError(
+                str(e).split("\n")[0], await shot(page, "error"), submitted
+            ) from e
         finally:
             try:
                 await ctx.close()

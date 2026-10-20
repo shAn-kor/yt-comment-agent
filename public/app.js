@@ -506,6 +506,17 @@ $("#post").onclick = async () => {
         <p>${esc(profile)} 계정 · ${Math.round((Date.now() - started) / 1000)}초</p>
         <p><a href="${esc(job.commentUrl)}" target="_blank" rel="noopener">유튜브에서 내 댓글 보기 →</a></p>
         ${job.screenshot ? `<img src="/shots/${esc(job.screenshot)}" alt="게시 직후 화면" />` : ""}</div>`;
+    } else if (job.unverified) {
+      // 게시 버튼은 눌렀지만 내 댓글을 못 봄: 다시 달지 않도록 게시된 것으로 다룬다
+      showStep(job.lastStep, started, true);
+      state.posted = true;
+      state.selected.commented = true;
+      const v = state.videos.find((x) => x.videoId === state.selected.videoId);
+      if (v) v.commented = true;
+      $("#result").innerHTML =
+        `<div class="result warn"><strong>게시됨 · 확인 안 됨</strong><p>${esc(job.error)}</p>
+        <p>올라갔을 수 있어 이 영상에는 다시 달 수 없습니다. 유튜브에서 직접 확인하세요.</p>
+        ${job.screenshot ? `<img src="/shots/${esc(job.screenshot)}" alt="게시 직후 화면" />` : ""}</div>`;
     } else {
       showStep(job.lastStep, started, true);
       $("#result").innerHTML =
@@ -540,6 +551,7 @@ async function poll(id, started) {
 // ── 기록 ───────────────────────────────────────────
 const STATUS = {
   success: ["성공", "check"],
+  unverified: ["확인 안 됨", "now"],
   failed: ["실패", "x"],
   blocked: ["차단", "x"],
 };

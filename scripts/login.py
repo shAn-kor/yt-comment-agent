@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from agent.config import load_config, load_env  # noqa: E402
+from agent.config import LOGIN_MARK, load_config, load_env  # noqa: E402
 
 load_env()
 config = load_config()
@@ -25,6 +25,8 @@ chrome = os.environ.get(
     "CHROME_PATH", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 )
 profile.dir.mkdir(parents=True, exist_ok=True)
+# 대시보드는 이 표시가 있는 프로필만 "준비됨"으로 본다. 이 뒤에 "로그인 안 됨"으로 실패하면 다시 로그인 필요로 바뀐다
+(profile.dir / LOGIN_MARK).touch()
 subprocess.Popen(
     [
         chrome,

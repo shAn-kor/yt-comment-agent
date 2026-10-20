@@ -45,12 +45,13 @@ class PostHistory(Protocol):
 
 def check_post(
     video: dict,
-    profile: str,
+    profile: str | None,
     config: Config,
     store: PostHistory,
     now: float | None = None,
+    ready: Callable[[str], bool] = lambda _: True,
 ) -> dict:
-    if not any(p.name == profile for p in config.profiles):
+    if profile and not any(p.name == profile for p in config.profiles):
         return _fail(f"설정에 없는 프로필 ({profile})")
     scope = check_post_scope(video, config)
     if not scope["ok"]:
@@ -59,10 +60,20 @@ def check_post(
         return _fail("이미 댓글을 단 영상 (영상당 1개)")
     if store.count_success_on(kst_date(now)) >= config.limits.daily_max:
         return _fail(f"오늘 게시 상한 {config.limits.daily_max}개 도달")
+    if not profile:
+        return _fail("로그인된 프로필이 없음 — uv run python scripts/login.py <프로필 이름>")
+    if not ready(profile):
+        return _fail(f"{profile} 로그인 필요 — uv run python scripts/login.py {profile}")
     return {"ok": True}
 
 
-def pick_profile(config: Config, last_used: Callable[[str], float]) -> str | None:
-    """자동 배정: 가장 오래 안 쓴 프로필"""
-    ordered = sorted(config.profiles, key=lambda p: last_used(p.name))
+def pick_profile(
+    config: Config,
+    last_used: Callable[[str], float],
+    ready: Callable[[str], bool] = lambda _: True,
+) -> str | None:
+    """자동 배정: 로그인된 프로필 중 가장 오래 안 쓴 것"""
+    ordered = sorted(
+        (p for p in config.profiles if ready(p.name)), key=lambda p: last_used(p.name)
+    )
     return ordered[0].name if ordered else None

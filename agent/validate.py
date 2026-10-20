@@ -14,15 +14,27 @@ def count_chars(s) -> int:
     return len(str(s or "").strip())
 
 
+# 링크·해시태그 검사는 NFKC로 바꾼 글에 한다 (전각 ｗｗｗ．, ＃ 같은 글자도 잡는다)
 LINK = re.compile(
-    r"(https?://|www\.|[a-z0-9-]+\.(com|net|org|kr|co|me|io|ly|gg|link|site|shop)\b)",
+    r"(https?://|www\."
+    r"|[a-z0-9-]+\s*\.\s*[a-z]{2,6}(?![a-z])"  # 영문 도메인, 점 앞뒤 띄어쓰기 포함 (umw . com)
+    r"|[a-z0-9가-힣-]+\.(한국|[a-z]{2,6}(?![a-z]))"  # 붙여 쓴 한글 도메인 (사주.한국, 운명.kr)
+    r"|(닷|dot|쩜)\s*(컴|com|넷|net|kr|케이알)|(?<![가-힣])점\s*(com|net|kr)(?![a-z]))",  # 말로 쓴 도메인 (umw 닷 com)
     re.I,
 )
 HASHTAG = re.compile(r"#[^\s#]")
 # 브랜드를 직접 이용해 본 것처럼 읽히는 표현 (브랜드가 들어간 문장에서만 검사)
 FAKE_USE = re.compile(
-    r"(봤는데|봤더니|봤어요|봤음|봤다|받아\s?봤|받았는데|받았어|다녀왔|다녀옴|가\s?봤|상담\s?받|맞더라|맞았|맞추더|용하더|소름|후기)"
+    r"(봤는데|봤더니|봤어요|봤음|봤다|봤던|봤었|봤거든|받아\s?봤|받아\s?보니|받았는데|받았어|받고\s?왔"
+    r"|보고\s?왔|해\s?봤|해봄|다녀왔|다녀옴|가\s?봤|갔었|갔는데|갔다|상담\s?받|맞더라|맞았|맞추더|용하더"
+    r"|소름|후기|추천|강추)"
 )
+# 사주·점을 본 경험담. 브랜드가 없는 문장으로 떼어 써도 잡도록 글 전체에서 검사한다
+FORTUNE_USE = re.compile(
+    r"(사주|타로|궁합|신점|운세|철학관|상담)\S{0,4}\s?"
+    r"(봤|받았|받아\s?봤|해\s?봤|보고\s?왔|다녀|맞더|맞았|맞췄|용하)"
+)
+ANCHOR_MIN = 5  # 인용구로 인정하는 최소 글자 수 (공백·문장부호 제외)
 
 
 def _bigrams(s) -> set[str]:
@@ -93,7 +105,8 @@ def validate_comment(
     )
     add("brand", f'"{brand}" 한 번', n == 1, brand_note)
 
-    link, tag = bool(LINK.search(text)), bool(HASHTAG.search(text))
+    plain = unicodedata.normalize("NFKC", text)
+    link, tag = bool(LINK.search(plain)), bool(HASHTAG.search(plain))
     add(
         "link",
         "링크·해시태그 없음",
@@ -101,10 +114,10 @@ def validate_comment(
         ", ".join(x for x in [link and "링크 금지", tag and "해시태그 금지"] if x),
     )
 
-    fake = next(
+    fake = FORTUNE_USE.search(plain) or next(
         (
             m
-            for s in re.split(r"[.!?…\n]+", text)
+            for s in re.split(r"[.!?…\n]+", plain)
             if brand in s and (m := FAKE_USE.search(s))
         ),
         None,
@@ -116,12 +129,13 @@ def validate_comment(
         f'{brand}을(를) 이용해 본 것처럼 읽힘 ("{fake[0]}")' if fake else "",
     )
 
-    # 영상 속 장면·말: 모델이 밝힌 인용구가 원문과 댓글 모두에 있거나, 원문과 6자 이상 겹쳐야 한다
+    # 영상 속 장면·말: 모델이 밝힌 인용구(5자 이상)가 원문과 댓글 모두에 있거나, 원문과 6자 이상 겹쳐야 한다.
+    # detail은 화면이 보내는 값이라 "오늘은" 같은 흔한 짧은 말로는 통과하지 못하게 한다
     src = norm(source)
     body = norm(" ".join(text.split(brand)))
     d = norm(detail)
     anchor = ""
-    if len(d) >= 3 and d in src and d in body:
+    if len(d) >= ANCHOR_MIN and d in src and d in body:
         anchor = _locate(text, d) or detail
     else:
         common = longest_common(body, src)

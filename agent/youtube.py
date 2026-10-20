@@ -14,20 +14,28 @@ from yt_dlp import YoutubeDL
 from .config import Channel, Rising
 
 
+VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}")  # \w는 한글도 받아서 쓰지 않는다
+
+
+def is_video_id(value) -> bool:
+    return isinstance(value, str) and bool(VIDEO_ID.fullmatch(value))
+
+
 def parse_video_id(value) -> str | None:
     s = str(value or "").strip()
-    if re.fullmatch(r"[\w-]{11}", s):
+    if is_video_id(s):
         return s
     try:
         u = urlparse(s)
     except ValueError:
         return None
     host = u.hostname or ""
-    if host.endswith("youtu.be"):
-        return u.path[1:12] or None
-    if host.endswith("youtube.com"):
+    if host == "youtu.be" or host.endswith(".youtu.be"):
+        v = u.path[1:12]
+        return v if is_video_id(v) else None
+    if host == "youtube.com" or host.endswith(".youtube.com"):
         if v := parse_qs(u.query).get("v"):
-            return v[0]
+            return v[0] if is_video_id(v[0]) else None
         if m := re.search(r"/(shorts|live|embed)/([\w-]{11})", u.path):
             return m[2]
     return None
@@ -184,6 +192,8 @@ def _fetch_transcript(url: str) -> str:
 
 def get_video_context(video_id: str, comments: bool = True) -> dict:
     """영상 메타·자막·인기 댓글"""
+    if not is_video_id(video_id):
+        raise ValueError(f"영상 ID 형식이 아님: {video_id!r}")
     opts = {}
     if comments:
         opts = {
@@ -202,6 +212,8 @@ def get_video_context(video_id: str, comments: bool = True) -> dict:
     roots = [c for c in info.get("comments") or [] if c.get("parent") in (None, "root")]
     roots.sort(key=lambda c: c.get("like_count") or 0, reverse=True)
 
+    if info.get("id") != video_id:
+        raise RuntimeError(f"요청한 영상({video_id})과 받은 영상({info.get('id')})이 다름")
     return {
         "videoId": video_id,
         "title": info.get("title") or "",

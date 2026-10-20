@@ -832,6 +832,9 @@ textarea:focus {
 .result.bad strong {
   color: var(--red);
 }
+.result.warn strong {
+  color: var(--label);
+}
 .result p {
   margin-top: 4px;
   color: var(--label-2);
@@ -941,6 +944,9 @@ td a {
 }
 .pill.success {
   color: var(--green);
+}
+.pill.unverified {
+  color: var(--label);
 }
 .pill.failed {
   color: var(--red);

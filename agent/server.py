@@ -6,11 +6,14 @@ uv run python -m agent.server
 import asyncio
 import os
 import time
+from typing import Annotated
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .config import ROOT, load_config, load_env
 from .generate import draft_comment, source_text
@@ -24,7 +27,13 @@ from .rules import (
 )
 from .store import Store
 from .validate import validate_comment
-from .youtube import fetch_channel_feed, find_rising, get_video_context, parse_video_id
+from .youtube import (
+    VIDEO_ID,
+    fetch_channel_feed,
+    find_rising,
+    get_video_context,
+    parse_video_id,
+)
 
 load_env()
 config = load_config()
@@ -56,9 +65,41 @@ async def api_error(_: Request, e: ApiError):
     return JSONResponse({"error": e.message}, status_code=e.status)
 
 
+@app.exception_handler(RequestValidationError)
+async def bad_request(_: Request, e: RequestValidationError):
+    fields = ", ".join(str(err["loc"][-1]) for err in e.errors())
+    return JSONResponse({"error": f"잘못된 요청 값: {fields}"}, status_code=422)
+
+
 @app.exception_handler(Exception)
 async def unexpected(_: Request, e: Exception):
     return JSONResponse({"error": str(e)}, status_code=500)
+
+
+LOCAL_HOSTS = {"localhost", "127.0.0.1"}
+
+
+@app.middleware("http")
+async def local_only(request: Request, call_next):
+    """DNS 리바인딩과 다른 웹사이트가 보내는 요청을 막는다.
+    Host와 Origin(있을 때)이 내 컴퓨터 주소여야 한다."""
+    host = urlparse(f"//{request.headers.get('host', '')}").hostname
+    origin = request.headers.get("origin")
+    if host not in LOCAL_HOSTS or (
+        origin is not None and urlparse(origin).hostname not in LOCAL_HOSTS
+    ):
+        return JSONResponse(
+            {"error": "내 컴퓨터(localhost)에서 연 대시보드만 쓸 수 있습니다"},
+            status_code=403,
+        )
+    return await call_next(request)
+
+
+def profile_ready(name: str) -> bool:
+    """login.py로 로그인 창을 연 적이 있고, 그 뒤에 "로그인 안 됨"으로 실패하지 않은 프로필"""
+    p = next((p for p in config.profiles if p.name == name), None)
+    at = p.login_at() if p else None
+    return at is not None and not store.login_failed_since(name, at)
 
 
 async def context(video_id: str) -> dict:
@@ -145,12 +186,16 @@ class ResolveIn(BaseModel):
     url: str = ""
 
 
+# 영상 ID는 11자리 형식만 받는다. "ID&t=1" 같은 변형으로 영상당 1개 규칙을 피하지 못하게 한다
+VideoId = Annotated[str, Field(pattern=f"^{VIDEO_ID.pattern}$")]
+
+
 class DraftIn(BaseModel):
-    videoId: str
+    videoId: VideoId
 
 
 class ValidateIn(BaseModel):
-    videoId: str
+    videoId: VideoId
     comment: str = ""
     detail: str = ""
 
@@ -163,7 +208,7 @@ class PostIn(ValidateIn):
 def get_config():
     return {
         "profiles": [
-            {"name": p.name, "ready": p.dir.exists()} for p in config.profiles
+            {"name": p.name, "ready": profile_ready(p.name)} for p in config.profiles
         ],
         "channels": [{"id": c.id, "name": c.name} for c in config.channels],
         "postingScope": config.posting_scope,
@@ -253,10 +298,23 @@ async def post(body: PostIn):
     global busy
     if busy:
         raise ApiError(409, "다른 댓글을 게시하는 중입니다")
+    # 검사 도중 await(영상 자료 받기) 사이에 두 번째 요청이 끼어들지 못하게 바로 잠근다
+    busy = True
+    started = False
+    try:
+        out = await _start_post(body)
+        started = True
+        return out
+    finally:
+        if not started:
+            busy = False
+
+
+async def _start_post(body: PostIn) -> dict:
     ctx = await context(body.videoId)
     video = video_of(ctx)  # 채널은 화면이 보낸 값이 아니라 yt-dlp 결과로 확인
     name = (
-        pick_profile(config, store.last_used)
+        pick_profile(config, store.last_used, profile_ready)
         if body.profile in ("", "auto")
         else body.profile
     )
@@ -277,7 +335,7 @@ async def post(body: PostIn):
     )
     if not v["ok"]:
         block(422, ", ".join(v["errors"]), f"검증 실패: {', '.join(v['errors'])}")
-    rule = check_post(video, name, config, store)
+    rule = check_post(video, name, config, store, ready=profile_ready)
     if not rule["ok"]:
         block(403, rule["reason"])
 
@@ -290,7 +348,6 @@ async def post(body: PostIn):
         "status": "대기",
         "done": False,
     }
-    busy = True
     profile_dir = next(p.dir for p in config.profiles if p.name == name)
 
     async def run():
@@ -307,9 +364,24 @@ async def post(body: PostIn):
             job.update(status="게시 완료", done=True, ok=True, **out)
         except Exception as e:
             shot = getattr(e, "screenshot", None) if isinstance(e, PostError) else None
-            store.add({**row, "status": "failed", "reason": str(e), "screenshot": shot})
+            # 게시 버튼을 누른 뒤의 실패는 댓글이 올라갔을 수 있어 "확인 안 됨"으로 남기고
+            # 영상당 1개·하루 상한에서 게시된 것으로 센다
+            sent = isinstance(e, PostError) and e.submitted
+            store.add(
+                {
+                    **row,
+                    "status": "unverified" if sent else "failed",
+                    "reason": str(e),
+                    "screenshot": shot,
+                }
+            )
             job.update(
-                status="실패", done=True, ok=False, error=str(e), screenshot=shot
+                status="확인 안 됨" if sent else "실패",
+                done=True,
+                ok=False,
+                unverified=sent,
+                error=str(e),
+                screenshot=shot,
             )
         finally:
             busy = False
@@ -333,7 +405,9 @@ def logs():
 
 
 @app.get("/api/post-state")
-async def get_post_state(videoId: str):
+async def get_post_state(
+    videoId: Annotated[str, Query(pattern=f"^{VIDEO_ID.pattern}$")],
+):
     return post_state(video_of(await context(videoId)))
 
 

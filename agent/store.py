@@ -13,9 +13,14 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS logs (
   day TEXT NOT NULL,
   video_id TEXT, video_title TEXT, channel_id TEXT, channel_name TEXT,
   profile TEXT, comment TEXT,
-  status TEXT NOT NULL,          -- success | failed | blocked
+  status TEXT NOT NULL,          -- success | unverified | failed | blocked
   reason TEXT, screenshot TEXT, comment_url TEXT
 )"""
+
+
+# 규칙 검사(영상당 1개·하루 상한·비교 대상)에서 "게시됨"으로 세는 상태.
+# unverified: 게시 버튼은 눌렀지만 내 댓글을 확인하지 못함 (스팸 필터에 숨겨졌을 수 있다)
+POSTED = "('success', 'unverified')"
 
 
 class Store:
@@ -56,25 +61,25 @@ class Store:
     def has_success(self, video_id: str) -> bool:
         return bool(
             self._query(
-                "SELECT 1 FROM logs WHERE video_id = ? AND status = 'success' LIMIT 1",
+                f"SELECT 1 FROM logs WHERE video_id = ? AND status IN {POSTED} LIMIT 1",
                 video_id,
             )
         )
 
     def count_success_on(self, day: str) -> int:
         return self._query(
-            "SELECT COUNT(*) FROM logs WHERE day = ? AND status = 'success'", day
+            f"SELECT COUNT(*) FROM logs WHERE day = ? AND status IN {POSTED}", day
         )[0][0]
 
     def commented_ids(self) -> set[str]:
         return {
             r[0]
-            for r in self._query("SELECT video_id FROM logs WHERE status = 'success'")
+            for r in self._query(f"SELECT video_id FROM logs WHERE status IN {POSTED}")
         }
 
     def previous_comments(self, n: int = 30, except_video_id: str = "") -> list[str]:
         rows = self._query(
-            "SELECT comment FROM logs WHERE status = 'success' AND video_id IS NOT ? ORDER BY ts DESC LIMIT ?",
+            f"SELECT comment FROM logs WHERE status IN {POSTED} AND video_id IS NOT ? ORDER BY ts DESC LIMIT ?",
             except_video_id,
             n,
         )
@@ -82,10 +87,20 @@ class Store:
 
     def last_used(self, profile: str) -> int:
         row = self._query(
-            "SELECT MAX(ts) FROM logs WHERE profile = ? AND status IN ('success','failed')",
+            "SELECT MAX(ts) FROM logs WHERE profile = ? AND status IN ('success','unverified','failed')",
             profile,
         )
         return row[0][0] or 0
+
+    def login_failed_since(self, profile: str, since_ms: int) -> bool:
+        """since_ms 뒤에 이 프로필이 "로그인 안 됨"으로 실패한 적이 있는지"""
+        return bool(
+            self._query(
+                "SELECT 1 FROM logs WHERE profile = ? AND status = 'failed' AND reason LIKE '로그인 안 됨%' AND ts > ? LIMIT 1",
+                profile,
+                since_ms,
+            )
+        )
 
     def list(self, limit: int = 200) -> list[dict]:
         return [

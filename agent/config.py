@@ -18,10 +18,18 @@ def load_env(file: Path = ROOT / ".env") -> None:
             os.environ[m[1]] = m[2].strip("\"'")
 
 
+LOGIN_MARK = ".agent-login"  # scripts/login.py가 프로필 폴더에 남기는 표시 (로그인 창을 연 시각)
+
+
 @dataclass
 class Profile:
     name: str
     dir: Path
+
+    def login_at(self) -> int | None:
+        """login.py로 로그인 창을 연 시각(밀리초). 연 적이 없으면 None"""
+        mark = self.dir / LOGIN_MARK if self.dir else None
+        return int(mark.stat().st_mtime * 1000) if mark and mark.exists() else None
 
 
 @dataclass

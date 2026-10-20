@@ -37,7 +37,7 @@ def client(tmp_path, monkeypatch):
             "outsideVid1": ctx("outsideVid1", "UCother"),
         },
     )
-    return TestClient(server.app)
+    return TestClient(server.app, base_url="http://localhost")
 
 
 def test_설정과_화면_파일(client):
