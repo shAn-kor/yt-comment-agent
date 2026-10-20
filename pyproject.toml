@@ -1,0 +1,22 @@
+[project]
+name = "yt-comment-agent"
+version = "0.2.0"
+description = "유튜브 댓글 에이전트 대시보드 (로컬 실행)"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "httpx>=0.27",
+  "pyyaml>=6.0",
+  "playwright>=1.50",
+  "yt-dlp>=2026.8.19",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
