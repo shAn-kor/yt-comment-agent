@@ -5,20 +5,8 @@
 ## 기능
 
 - [x] 서버를 FastAPI(Python)로 전환. 화면(`public/`)은 그대로 두고 API 주소와 응답 모양을 유지했다. (2026-10-20)
-- [ ] **Claude 말고 무료 AI 모델로도 초안을 만들 수 있게 하기**
-  - 이유: 심사자가 Claude 계정이나 유료 키 없이도 실행해 볼 수 있어야 한다. 과제 문서는 "AI 모델은 자유"라고 한다.
-  - 바꿀 곳: `agent/llm.py`의 `complete()`. 지금은 Claude API 또는 `claude` CLI만 지원한다.
-  - 방법: `.env`의 `LLM_PROVIDER` 값으로 고른다. 키가 없을 때 쓸 기본값도 정한다.
-  - 후보 (무료 범위와 한국어 품질은 구현 전에 공식 문서로 확인):
-    - Google Gemini API 무료 등급
-    - Groq 무료 등급
-    - OpenRouter 무료 모델
-    - Ollama 로컬 모델 (키 없음, 인터넷 없이 동작, 대신 내 컴퓨터 성능에 따라 느림)
-  - 완료 기준:
-    - 무료 모델 하나 이상으로 실제 영상 2개의 초안이 검사기를 통과한다.
-    - README와 `docs/IMPLEMENTATION.md` 4장에 설정 방법을 적는다.
-    - `uv run pytest` 통과.
-  - 참고: 모델마다 JSON만 답하는 능력이 다르다. `parseJson()`과 다시 쓰기(최대 3번)로 버티는지 확인한다.
+- [x] Claude 말고 무료 AI 모델로도 초안을 만들 수 있게 했다. 설정 파일의 `LLM_PROVIDER`로 `gemini` · `groq` · `openrouter` · `claude`를 고른다. 키가 없으면 Gemini 무료 키 받는 곳을 알려 준다. Gemini 무료 등급으로 실제 영상 2개가 첫 시도에 검사를 통과했다. 로컬 모델(Ollama)은 심사자 컴퓨터마다 속도가 달라 뺐다. (2026-10-20)
+  - [ ] 남은 일: Groq·OpenRouter로도 실제 초안 확인 (키 필요)
 
 ## 실제 게시 확인
 
