@@ -71,3 +71,7 @@ public/            대시보드 화면
 ## 사용한 오픈소스
 
 Playwright (Apache-2.0), yaml (ISC), yt-dlp (Unlicense, 외부 실행), Pretendard (OFL, CDN).
+
+## 더 읽기
+
+- [기능별 구현 설명](docs/IMPLEMENTATION.md)
