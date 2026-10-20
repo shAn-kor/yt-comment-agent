@@ -1,7 +1,7 @@
 """프롬프트 하나를 보내고 글을 받는다.
 
-LLM_PROVIDER로 고른다: claude | gemini | groq | openrouter | ollama.
-비어 있으면 키가 있는 곳 → claude CLI → Ollama 순서로 고른다.
+LLM_PROVIDER로 고른다: claude | gemini | groq | openrouter.
+비어 있으면 키가 있는 곳 → claude CLI 순서로 고르고, 둘 다 없으면 Gemini(무료 키 안내).
 """
 
 import os
@@ -17,7 +17,8 @@ import httpx
 class Provider:
     name: str  # 화면에 보일 이름
     base_url: str  # OpenAI 호환 주소 (끝의 /chat/completions 제외)
-    key_env: str  # API 키 환경 변수 (없으면 빈 문자열)
+    key_env: str  # API 키 환경 변수
+    key_url: str  # 키 발급 페이지
     model: str  # 기본 모델
     timeout: int = 120
 
@@ -28,22 +29,23 @@ OPENAI_COMPATIBLE = {
         "Gemini",
         "https://generativelanguage.googleapis.com/v1beta/openai",
         "GEMINI_API_KEY",
+        "https://aistudio.google.com/apikey",
         "gemini-3.8-flash",
     ),
     "groq": Provider(
         "Groq",
         "https://api.groq.com/openai/v1",
         "GROQ_API_KEY",
+        "https://console.groq.com/keys",
         "openai/gpt-oss-120b",
     ),
     "openrouter": Provider(
         "OpenRouter",
         "https://openrouter.ai/api/v1",
         "OPENROUTER_API_KEY",
+        "https://openrouter.ai/settings/keys",
         "google/gemma-4-31b-it:free",
     ),
-    # 키 없음. 주소는 OLLAMA_HOST, 자체 API(/api/chat)를 쓴다
-    "ollama": Provider("Ollama", "", "", "gemma4:12b", timeout=300),
 }
 PROVIDERS = ("claude", *OPENAI_COMPATIBLE)
 
@@ -60,11 +62,11 @@ def provider_name() -> str:
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "claude"
     for key, p in OPENAI_COMPATIBLE.items():
-        if p.key_env and os.environ.get(p.key_env):
+        if os.environ.get(p.key_env):
             return key
     if shutil.which(os.environ.get("CLAUDE_CLI", "claude")):
         return "claude"
-    return "ollama"  # 키도 claude CLI도 없으면 내 컴퓨터의 모델
+    return "gemini"  # 키도 claude CLI도 없으면 무료 키를 받으라고 안내
 
 
 def _model(default: str) -> str:
@@ -97,10 +99,6 @@ def _post(p: Provider, url: str, body: dict, headers: dict | None = None) -> dic
     try:
         res = httpx.post(url, headers=headers or {}, json=body, timeout=p.timeout)
     except httpx.ConnectError as e:
-        if p.name == "Ollama":
-            raise RuntimeError(
-                f"Ollama에 연결하지 못함 ({url}). `ollama serve`로 켰는지 확인"
-            ) from e
         raise RuntimeError(f"{p.name} 연결 실패: {e}") from e
     except httpx.TimeoutException as e:
         raise RuntimeError(f"{p.name} 시간 초과 ({p.timeout}초)") from e
@@ -131,11 +129,11 @@ def _text(p: Provider, content) -> str:
 
 
 def _openai_compatible(p: Provider, prompt: str) -> str:
-    if p.name == "Ollama":
-        return _ollama(p, prompt)
     key = os.environ.get(p.key_env)
     if not key:
-        raise RuntimeError(f"{p.name}: .env에 {p.key_env}가 없음")
+        raise RuntimeError(
+            f"{p.name}: .env에 {p.key_env}가 없음. 무료 키는 {p.key_url}에서 받는다"
+        )
     data = _post(
         p,
         f"{p.base_url}/chat/completions",
@@ -146,28 +144,6 @@ def _openai_compatible(p: Provider, prompt: str) -> str:
         return _text(p, data["choices"][0]["message"]["content"])
     except (KeyError, IndexError, TypeError) as e:
         raise RuntimeError(f"{p.name} 응답 형식이 예상과 다름") from e
-
-
-def _ollama(p: Provider, prompt: str) -> str:
-    """Ollama 자체 API. OpenAI 호환 주소로는 문맥 길이(num_ctx)를 정할 수 없다.
-    기본 4096토큰이면 긴 자막에서 프롬프트 앞부분(규칙)이 잘린다."""
-    host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
-    if not host.startswith("http"):  # OLLAMA_HOST=127.0.0.1:11434 형태
-        host = "http://" + host
-    data = _post(
-        p,
-        f"{host}/api/chat",
-        {
-            "model": _model(p.model),
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": False,
-            "options": {"num_ctx": int(os.environ.get("OLLAMA_NUM_CTX", "16384"))},
-        },
-    )
-    try:
-        return _text(p, data["message"]["content"])
-    except (KeyError, TypeError) as e:
-        raise RuntimeError("Ollama 응답 형식이 예상과 다름") from e
 
 
 def _claude_api(prompt: str, key: str) -> str:

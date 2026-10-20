@@ -8,7 +8,7 @@ KEYS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_K
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    for k in (*KEYS, "LLM_PROVIDER", "LLM_MODEL", "OLLAMA_HOST", "OLLAMA_NUM_CTX"):
+    for k in (*KEYS, "LLM_PROVIDER", "LLM_MODEL"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(llm.shutil, "which", lambda _: None)  # claude CLI 없음
 
@@ -29,9 +29,12 @@ def calls(monkeypatch):
     return sent
 
 
-def test_키도_CLI도_없으면_Ollama():
-    assert llm.provider_name() == "ollama"
-    assert llm.backend_name() == "Ollama · gemma4:12b"
+def test_키도_CLI도_없으면_Gemini_키_안내(calls):
+    assert llm.provider_name() == "gemini"
+    assert llm.backend_name() == "Gemini · gemini-3.8-flash"
+    with pytest.raises(RuntimeError, match="aistudio.google.com/apikey"):
+        llm.complete("p")
+    assert calls == []
 
 
 def test_키가_있으면_그_공급자(monkeypatch):
@@ -101,25 +104,6 @@ def test_키가_없으면_알려줌(monkeypatch, calls):
     with pytest.raises(RuntimeError, match="GEMINI_API_KEY가 없음"):
         llm.complete("p")
     assert calls == []
-
-
-def test_Ollama는_자체_API로_문맥_길이를_정함(monkeypatch, calls):
-    monkeypatch.setenv("OLLAMA_HOST", "127.0.0.1:11434")
-    calls.reply = (200, {"message": {"role": "assistant", "content": "로컬 답"}})
-    assert llm.complete("p") == "로컬 답"
-    req = calls[0]
-    assert req["url"] == "http://127.0.0.1:11434/api/chat"
-    assert req["json"]["stream"] is False
-    assert req["json"]["options"]["num_ctx"] == 16384
-
-
-def test_Ollama가_꺼져_있으면_안내(monkeypatch):
-    def refuse(*a, **k):
-        raise httpx.ConnectError("refused")
-
-    monkeypatch.setattr(llm.httpx, "post", refuse)
-    with pytest.raises(RuntimeError, match="ollama serve"):
-        llm.complete("p")
 
 
 def test_429는_무료_한도_안내(monkeypatch, calls):
