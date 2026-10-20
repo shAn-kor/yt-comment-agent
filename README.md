@@ -2,13 +2,15 @@
 
 지정 채널의 영상을 불러오고, AI가 영상 맥락에 맞는 댓글 초안을 쓰고, 버튼을 누르면 크롬 프로필이 열려 한 글자씩 입력해 게시하는 로컬 대시보드.
 
+서버는 Python(FastAPI), 화면은 HTML·CSS·순수 JavaScript다.
+
 ## 준비
 
-필요한 것: Node.js 22.5 이상 (내장 SQLite), Google Chrome, `yt-dlp`, AI 하나 (`claude` CLI 로그인 또는 Anthropic API 키).
+필요한 것: [uv](https://docs.astral.sh/uv/), Google Chrome, AI 하나 (`claude` CLI 로그인 또는 Anthropic API 키). Python과 라이브러리(yt-dlp 포함)는 uv가 설치한다.
 
 ```bash
-npm install            # Playwright 브라우저는 받지 않아도 된다 (설치된 Chrome 사용)
-npm run login -- 유튜브1   # 일반 Chrome이 열린다. 테스트용 구글 계정으로 로그인하고 창을 닫는다
+uv sync                                   # Playwright 브라우저는 받지 않아도 된다 (설치된 Chrome 사용)
+uv run python scripts/login.py 유튜브1     # 일반 Chrome이 열린다. 테스트용 구글 계정으로 로그인하고 창을 닫는다
 ```
 
 `config.yaml`의 `test_videos`에 본인 테스트 영상 ID를 넣는다.
@@ -25,8 +27,8 @@ npm run login -- 유튜브1   # 일반 Chrome이 열린다. 테스트용 구글 
 ## 실행
 
 ```bash
-npm start              # http://localhost:4310
-npm test               # 검증기·운영 규칙 단위 테스트
+uv run python -m agent.server   # http://localhost:4310
+uv run pytest                   # 검사기·운영 규칙·API 테스트
 ```
 
 ## 쓰는 법
@@ -37,41 +39,45 @@ npm test               # 검증기·운영 규칙 단위 테스트
 
 ## 규칙 (서버에서 강제)
 
-| 규칙                                                                                                                | 위치                             |
-| ------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| 불러오기·초안: 지정 채널 영상 + 테스트 영상만. 링크 입력도 yt-dlp로 실제 채널을 확인                                | `src/rules.mjs` `checkLoadScope` |
-| 게시: `posting_scope: test_only`(기본)면 테스트 영상만                                                              | `checkPostScope`                 |
-| 영상당 1개 (계정과 상관없이)                                                                                        | `checkPost`                      |
-| 하루 상한 (기본 10개, 한국 시간 기준, 성공만 셈)                                                                    | `checkPost`                      |
-| 뜨기 직전 영상은 초안까지만                                                                                         | `src/server.mjs`                 |
-| 댓글 검사: 40~120자, 운명원 1회, 링크·해시태그 금지, 이용 후기처럼 쓰기 금지, 영상 속 표현 포함, 이전 댓글과 다르게 | `src/validate.mjs`               |
+| 규칙                                                                                                                | 위치                                |
+| ------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| 불러오기·초안: 지정 채널 영상 + 테스트 영상만. 링크 입력도 yt-dlp로 실제 채널을 확인                                | `agent/rules.py` `check_load_scope` |
+| 게시: `posting_scope: test_only`(기본)면 테스트 영상만                                                              | `check_post_scope`                  |
+| 영상당 1개 (계정과 상관없이)                                                                                        | `check_post`                        |
+| 하루 상한 (기본 10개, 한국 시간 기준, 성공만 셈)                                                                    | `check_post`                        |
+| 뜨기 직전 영상은 초안까지만                                                                                         | `agent/server.py`                   |
+| 댓글 검사: 40~120자, 운명원 1회, 링크·해시태그 금지, 이용 후기처럼 쓰기 금지, 영상 속 표현 포함, 이전 댓글과 다르게 | `agent/validate.py`                 |
 
 차단된 시도도 이유와 함께 기록한다 (`data/agent.db`).
 
 ## 구조
 
 ```
-src/server.mjs     로컬 서버와 API
-src/youtube.mjs    채널 RSS, yt-dlp(메타·자막·인기 댓글·검색)
-src/generate.mjs   프롬프트, 생성 → 검사 → 이유를 붙여 재생성 (최대 3회)
-src/validate.mjs   댓글 검증기
-src/rules.mjs      운영 규칙
-src/store.mjs      SQLite 기록
-src/poster.mjs     Playwright launchPersistentContext로 게시
-scripts/login.mjs  프로필 첫 로그인 (일반 Chrome)
-public/            대시보드 화면
+agent/server.py     FastAPI 서버와 API
+agent/youtube.py    yt-dlp 라이브러리 (채널 목록·메타·자막·인기 댓글·검색)
+agent/generate.py   프롬프트, 생성 → 검사 → 이유를 붙여 재생성 (최대 3회)
+agent/llm.py        Claude API 또는 claude CLI
+agent/validate.py   댓글 검증기
+agent/rules.py      운영 규칙
+agent/store.py      SQLite 기록
+agent/poster.py     Playwright launch_persistent_context로 게시
+agent/config.py     config.yaml, .env 읽기
+scripts/login.py    프로필 첫 로그인 (일반 Chrome)
+public/             대시보드 화면
+tests/              pytest
 ```
 
 ## 알려진 한계
 
-- 유튜브 화면 구조가 바뀌면 `src/poster.mjs`의 선택자를 고쳐야 한다.
+- 유튜브 화면 구조가 바뀌면 `agent/poster.py`의 선택자를 고쳐야 한다.
 - 새 계정의 댓글은 유튜브 스팸 필터에 걸려 다른 사람에게 안 보일 수 있다. 확인 단계는 "내 화면에서 보임" 기준이다.
-- 라이브 방송 다시보기("Live streaming of …")는 목록에서 뺀다.
+- 채널 목록의 올린 날짜는 유튜브의 "3일 전" 같은 표시에서 계산한 근삿값이다 (날짜 단위).
 
 ## 사용한 오픈소스
 
-Playwright (Apache-2.0), yaml (ISC), yt-dlp (Unlicense, 외부 실행), Pretendard (OFL, CDN).
+FastAPI (MIT), Uvicorn (BSD-3-Clause), HTTPX (BSD-3-Clause), PyYAML (MIT), Playwright (Apache-2.0), yt-dlp (Unlicense), Pretendard (OFL, CDN).
 
 ## 더 읽기
 
 - [기능별 구현 설명](docs/IMPLEMENTATION.md)
+- [할 일](TODO.md)

@@ -4,9 +4,10 @@
 
 ## 기능
 
+- [x] 서버를 FastAPI(Python)로 전환. 화면(`public/`)은 그대로 두고 API 주소와 응답 모양을 유지했다. (2026-10-20)
 - [ ] **Claude 말고 무료 AI 모델로도 초안을 만들 수 있게 하기**
   - 이유: 심사자가 Claude 계정이나 유료 키 없이도 실행해 볼 수 있어야 한다. 과제 문서는 "AI 모델은 자유"라고 한다.
-  - 바꿀 곳: `src/llm.mjs`의 `complete()`. 지금은 Claude API 또는 `claude` CLI만 지원한다.
+  - 바꿀 곳: `agent/llm.py`의 `complete()`. 지금은 Claude API 또는 `claude` CLI만 지원한다.
   - 방법: `.env`의 `LLM_PROVIDER` 값으로 고른다. 키가 없을 때 쓸 기본값도 정한다.
   - 후보 (무료 범위와 한국어 품질은 구현 전에 공식 문서로 확인):
     - Google Gemini API 무료 등급
@@ -16,15 +17,15 @@
   - 완료 기준:
     - 무료 모델 하나 이상으로 실제 영상 2개의 초안이 검사기를 통과한다.
     - README와 `docs/IMPLEMENTATION.md` 4장에 설정 방법을 적는다.
-    - `npm test` 통과.
+    - `uv run pytest` 통과.
   - 참고: 모델마다 JSON만 답하는 능력이 다르다. `parseJson()`과 다시 쓰기(최대 3번)로 버티는지 확인한다.
 
 ## 실제 게시 확인
 
 - [ ] 테스트용 구글 계정 준비. 유튜브 채널을 만들고 짧은 영상 1개를 올린다. (사용자)
 - [ ] 그 영상 ID를 `config.yaml`의 `test_videos`에 넣는다.
-- [ ] `npm run login -- 유튜브1`로 로그인한다. (사용자)
-- [ ] 테스트 영상에 실제로 게시하고 내 댓글 확인까지 되는지 본다. 안 되면 `src/poster.mjs`의 선택자를 고친다.
+- [ ] `uv run python scripts/login.py 유튜브1`로 로그인한다. (사용자)
+- [ ] 테스트 영상에 실제로 게시하고 내 댓글 확인까지 되는지 본다. 안 되면 `agent/poster.py`의 선택자를 고친다.
 - [ ] 같은 영상에 다시 게시하면 차단되는지, 허용 밖 링크가 차단되는지 본다.
 
 ## 제출물
