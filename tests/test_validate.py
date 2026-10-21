@@ -21,6 +21,7 @@ def test_조건을_다_지키면_통과():
         "brand",
         "link",
         "fake",
+        "script",
         "anchor",
         "unique",
     ]
@@ -67,3 +68,14 @@ def test_이전_댓글과_비슷하면_차단():
 def test_강조할_부분은_원문_그대로():
     v = validate_comment(GOOD, **OPTS)
     assert v["anchor"] in GOOD
+
+
+def test_한자_가나_등_다른_문자가_섞이면_실패():
+    assert "한국어가 아닌 글자가 섞임 (这段)" in errors(
+        GOOD.replace("나도", "这段 나도")
+    )
+    assert "섞임" in errors(GOOD.replace("나도", "나도 ほんと"))
+    assert "섞임" in errors(GOOD.replace("나도", "나도 ﾎﾝﾄ"))  # 반각 가나
+    assert "섞임" in errors(GOOD.replace("나도", "나도 правда"))
+    # 영문·숫자·이모지·자모는 괜찮다
+    assert errors(GOOD.replace("나도", "나도 ok 2번 ㅋㅋ 😭")) == ""

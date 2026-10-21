@@ -34,6 +34,13 @@ FORTUNE_USE = re.compile(
     r"(사주|타로|궁합|신점|운세|철학관|상담)\S{0,4}\s?"
     r"(봤|받았|받아\s?봤|해\s?봤|보고\s?왔|다녀|맞더|맞았|맞췄|용하)"
 )
+# 한국어 댓글에 섞이면 안 되는 문자: 한자, 가나, 키릴, 태국·아랍·데바나가리 문자.
+# 일부 무료 모델(Qwen 등)이 这段, 演 같은 한자를 섞어도 다른 검사는 통과했다
+FOREIGN_SCRIPT = re.compile(
+    "[\u0400-\u04ff\u0600-\u06ff\u0900-\u097f\u0e00-\u0e7f"
+    "\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff"
+    "\uf900-\ufaff\uff66-\uff9f\U00020000-\U0003ffff]"
+)
 ANCHOR_MIN = 5  # 인용구로 인정하는 최소 글자 수 (공백·문장부호 제외)
 
 
@@ -127,6 +134,14 @@ def validate_comment(
         "이용 후기처럼 쓰지 않음",
         not fake,
         f'{brand}을(를) 이용해 본 것처럼 읽힘 ("{fake[0]}")' if fake else "",
+    )
+
+    foreign = "".join(dict.fromkeys(FOREIGN_SCRIPT.findall(text)))
+    add(
+        "script",
+        "한글로만 씀",
+        not foreign,
+        f"한국어가 아닌 글자가 섞임 ({foreign[:10]})" if foreign else "",
     )
 
     # 영상 속 장면·말: 모델이 밝힌 인용구(5자 이상)가 원문과 댓글 모두에 있거나, 원문과 6자 이상 겹쳐야 한다.
