@@ -46,6 +46,12 @@ echo "LLM_PROVIDER=gemini" >> .env
 echo "GEMINI_API_KEY=발급받은-키" >> .env
 ```
 
+**자동 대체**: Gemini를 쓰는데 `GROQ_API_KEY`도 있으면, Gemini가 429(무료 한도 초과)나 503(서버 혼잡)을 돌려줄 때 Groq `openai/gpt-oss-120b`로 넘어간다. Groq 무료는 분당 8,000토큰이라 이때는 자막을 앞 5,000자만 보낸다. 화면 위쪽 AI 표시에 "(한도 초과 시 Groq · …)"가 붙는다. Gemini 무료 3.5 Flash는 하루 20회라, 두 키를 같이 넣어 두면 하루 한도에 덜 막힌다.
+
+```bash
+echo "GROQ_API_KEY=발급받은-키" >> .env   # Gemini 설정에 더한다
+```
+
 무료 한도와 모델 이름은 2026-10-20에 공식 문서로 확인했다. 바뀔 수 있다. 무료 한도를 넘으면 오류 문구에 "무료 한도 초과일 수 있음"이 붙는다.
 
 ## 실행
