@@ -2,7 +2,7 @@ import json
 import re
 from typing import Callable
 
-from .llm import complete
+from .llm import Prompt, complete
 from .validate import validate_comment
 
 
@@ -10,11 +10,24 @@ def source_text(ctx: dict) -> str:
     return "\n".join([ctx["title"], ctx["description"], ctx["transcript"]])
 
 
-def build_prompt(
-    ctx: dict, *, brand: str, min: int, max: int, previous=(), feedback=()
+TRANSCRIPT_LIMIT = 7000
+# Groq 무료(분당 8K 토큰)로 넘어갈 때. 가장 긴 프롬프트가 8,016토큰으로 거절된 뒤 정했다
+SHORT_TRANSCRIPT_LIMIT = 5000
+
+
+def build_prompt(ctx: dict, **kw) -> Prompt:
+    """보통 프롬프트와, 대체 모델용으로 자막을 줄인 프롬프트를 함께 만든다."""
+    return Prompt(
+        _prompt_text(ctx, TRANSCRIPT_LIMIT, **kw),
+        short=_prompt_text(ctx, SHORT_TRANSCRIPT_LIMIT, **kw),
+    )
+
+
+def _prompt_text(
+    ctx: dict, limit: int, *, brand: str, min: int, max: int, previous=(), feedback=()
 ) -> str:
     transcript = (
-        ctx["transcript"][:7000]
+        ctx["transcript"][:limit]
         if ctx["transcript"]
         else "(자막 없음 — 제목과 설명만 사용)"
     )

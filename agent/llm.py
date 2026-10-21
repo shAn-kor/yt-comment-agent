@@ -50,6 +50,26 @@ OPENAI_COMPATIBLE = {
 }
 PROVIDERS = ("claude", *OPENAI_COMPATIBLE)
 
+# Gemini 무료 한도(하루 20회)가 차거나 서버가 붐비면 Groq로 넘긴다.
+# Groq 무료는 분당 8K 토큰이라 자막을 줄인 프롬프트(Prompt.short)를 보낸다.
+FALLBACK_FROM, FALLBACK_TO = "gemini", "groq"
+FALLBACK_STATUS = (429, 503)
+
+
+class Prompt(str):
+    """프롬프트 글. short에는 토큰 한도가 작은 대체 모델용으로 줄인 글을 담는다."""
+
+    def __new__(cls, text: str, short: str | None = None):
+        obj = super().__new__(cls, text)
+        obj.short = short or text
+        return obj
+
+
+class ProviderError(RuntimeError):
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
 
 def provider_name() -> str:
     """LLM_PROVIDER 값. 비어 있으면 쓸 수 있는 것을 고른다."""
@@ -84,7 +104,17 @@ def backend_name() -> str:
             return f"Claude API · {_model('claude-sonnet-5-5')}"
         return "claude CLI"
     p = OPENAI_COMPATIBLE[name]
-    return f"{p.name} · {_model(p.model)}"
+    label = f"{p.name} · {_model(p.model)}"
+    if _has_fallback(name):
+        f = OPENAI_COMPATIBLE[FALLBACK_TO]
+        label += f" (한도 초과 시 {f.name} · {f.model})"
+    return label
+
+
+def _has_fallback(name: str) -> bool:
+    return name == FALLBACK_FROM and bool(
+        os.environ.get(OPENAI_COMPATIBLE[FALLBACK_TO].key_env)
+    )
 
 
 def complete(prompt: str) -> str:
@@ -93,7 +123,19 @@ def complete(prompt: str) -> str:
         if key := os.environ.get("ANTHROPIC_API_KEY"):
             return _claude_api(prompt, key)
         return _claude_cli(prompt)
-    return _openai_compatible(OPENAI_COMPATIBLE[name], prompt)
+    p = OPENAI_COMPATIBLE[name]
+    try:
+        return _openai_compatible(p, prompt, _model(p.model))
+    except ProviderError as e:
+        if e.status not in FALLBACK_STATUS or not _has_fallback(name):
+            raise
+        f = OPENAI_COMPATIBLE[FALLBACK_TO]
+        short = getattr(prompt, "short", prompt)
+        try:
+            # LLM_MODEL은 Gemini용이라 대체할 때는 Groq 기본 모델을 쓴다
+            return _openai_compatible(f, short, f.model)
+        except RuntimeError as e2:
+            raise RuntimeError(f"{e} / 대체 {e2}") from e2
 
 
 def _post(p: Provider, url: str, body: dict, headers: dict | None = None) -> dict:
@@ -117,8 +159,9 @@ def _post(p: Provider, url: str, body: dict, headers: dict | None = None) -> dic
             if res.status_code == 429
             else ""
         )
-        raise RuntimeError(
-            f"{p.name} 오류 {res.status_code}: {msg or res.text[:200]}{hint}"
+        raise ProviderError(
+            f"{p.name} 오류 {res.status_code}: {msg or res.text[:200]}{hint}",
+            res.status_code,
         )
     return data
 
@@ -129,7 +172,7 @@ def _text(p: Provider, content) -> str:
     return content
 
 
-def _openai_compatible(p: Provider, prompt: str) -> str:
+def _openai_compatible(p: Provider, prompt: str, model: str) -> str:
     key = os.environ.get(p.key_env)
     if not key:
         raise RuntimeError(
@@ -138,7 +181,7 @@ def _openai_compatible(p: Provider, prompt: str) -> str:
     data = _post(
         p,
         f"{p.base_url}/chat/completions",
-        {"model": _model(p.model), "messages": [{"role": "user", "content": prompt}]},
+        {"model": model, "messages": [{"role": "user", "content": str(prompt)}]},
         {"Authorization": f"Bearer {key}"},
     )
     try:

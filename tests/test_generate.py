@@ -48,3 +48,11 @@ def test_JSON이_아니면_다시_요청():
     )
     draft = draft_comment(CTX, **RULES, llm=lambda p: next(answers))
     assert draft["attempts"] == 2
+
+
+def test_대체_모델용_프롬프트는_자막을_줄임():
+    ctx = {**CTX, "transcript": "가" * 6000 + "끝부분"}
+    p = build_prompt(ctx, **RULES)
+    assert "가" * 6000 + "끝부분" in p
+    assert "가" * 5000 in p.short and "가" * 5001 not in p.short
+    assert p.short.replace("가" * 5000, "") == p.replace("가" * 6000 + "끝부분", "")

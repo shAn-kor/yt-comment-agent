@@ -130,3 +130,70 @@ def test_빈_답은_오류(monkeypatch, calls):
     calls.reply = (200, {"choices": [{"message": {"content": None}}]})
     with pytest.raises(RuntimeError, match="빈 답"):
         llm.complete("p")
+
+
+@pytest.fixture
+def replies(monkeypatch):
+    """요청 주소마다 다른 답을 준다 (Gemini → Groq 대체 확인용)."""
+    sent = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        sent.append({"url": url, "json": json})
+        status, body = sent.by_host["groq" if "groq" in url else "gemini"]
+        return httpx.Response(status, json=body)
+
+    sent = type("Sent", (list,), {})()
+    sent.by_host = {}
+    monkeypatch.setattr(llm.httpx, "post", fake_post)
+    return sent
+
+
+OK = (200, {"choices": [{"message": {"content": "답"}}]})
+
+
+@pytest.mark.parametrize("status", [429, 503])
+def test_Gemini_한도_초과면_Groq로_줄인_프롬프트(monkeypatch, replies, status):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("LLM_MODEL", "gemini-3.8-flash")
+    monkeypatch.setenv("GEMINI_API_KEY", "g")
+    monkeypatch.setenv("GROQ_API_KEY", "q")
+    replies.by_host = {"gemini": (status, {"error": {"message": "quota"}}), "groq": OK}
+    assert llm.complete(llm.Prompt("긴 글", short="짧은 글")) == "답"
+    gemini, groq = replies
+    assert gemini["json"]["messages"][0]["content"] == "긴 글"
+    assert gemini["json"]["model"] == "gemini-3.8-flash"
+    assert groq["json"]["messages"][0]["content"] == "짧은 글"
+    assert groq["json"]["model"] == "openai/gpt-oss-120b"  # LLM_MODEL을 넘기지 않음
+    assert llm.backend_name().endswith("(한도 초과 시 Groq · openai/gpt-oss-120b)")
+
+
+def test_Groq_키가_없으면_대체하지_않음(monkeypatch, replies):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "g")
+    replies.by_host = {"gemini": (429, {"error": {"message": "quota"}})}
+    with pytest.raises(RuntimeError, match="Gemini 오류 429"):
+        llm.complete("p")
+    assert len(replies) == 1
+
+
+def test_다른_오류는_대체하지_않음(monkeypatch, replies):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "g")
+    monkeypatch.setenv("GROQ_API_KEY", "q")
+    replies.by_host = {"gemini": (400, {"error": {"message": "bad key"}}), "groq": OK}
+    with pytest.raises(RuntimeError, match="bad key"):
+        llm.complete("p")
+    assert len(replies) == 1
+
+
+def test_대체도_실패하면_두_오류를_함께_알림(monkeypatch, replies):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "g")
+    monkeypatch.setenv("GROQ_API_KEY", "q")
+    replies.by_host = {
+        "gemini": (429, {"error": {"message": "quota"}}),
+        "groq": (413, {"error": {"message": "TPM Limit 8000"}}),
+    }
+    with pytest.raises(RuntimeError, match="Gemini 오류 429.*대체 Groq 오류 413"):
+        llm.complete("p")  # 일반 글이면 short가 없으니 같은 글을 보낸다
+    assert replies[1]["json"]["messages"][0]["content"] == "p"
