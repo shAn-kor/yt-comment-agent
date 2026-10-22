@@ -494,7 +494,7 @@ function renderPostChecks() {
   $("#postReason").className = "note center";
   $("#postReason").textContent = blocked
     ? ""
-    : "누르면 크롬 창이 열리고 화면에서 직접 입력합니다.";
+    : "누르면 브라우저 창이 열리고 화면에서 직접 입력합니다.";
 }
 
 function accountCheck() {
@@ -529,6 +529,7 @@ function resetPost() {
 
 const STEP_OF = {
   "프로필 여는 중": 0,
+  "ego 브라우저 여는 중": 0,
   "영상 여는 중": 0,
   "댓글창 찾는 중": 1,
   "입력 중": 2,

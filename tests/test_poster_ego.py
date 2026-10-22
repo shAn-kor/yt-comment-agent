@@ -129,3 +129,40 @@ def test_게시를_누른_뒤_실패는_submitted(monkeypatch, tmp_path):
 def test_결과_없이_끝나면_마지막_출력을_알림(monkeypatch, tmp_path):
     with pytest.raises(PostError, match="ego 브라우저 실행 실패: 연결 거부"):
         run_with(monkeypatch, tmp_path, ["연결 거부"])
+
+
+def test_상태_파일의_줄을_진행_중에_읽음(monkeypatch, tmp_path):
+    # ego 실행기는 화면 출력을 끝날 때 몰아서 내보내므로, 진행 상태는 스크립트가 쓰는 파일에서 읽는다
+    monkeypatch.setattr(poster_ego.shutil, "which", lambda _: "/bin/ego")
+    box = {}
+
+    class FileProc(FakeProc):
+        def write(self, data):
+            js = data.decode()
+            line = next(ln for ln in js.splitlines() if ln.startswith("const A = "))
+            box["file"] = json.loads(line[len("const A = ") : -1])["statusFile"]
+
+        async def _gen(self, lines):
+            from pathlib import Path
+
+            f = Path(box["file"])
+            f.write_text('@@status "입력 중"\n', encoding="utf-8")
+            await asyncio.sleep(0.5)
+            box["seen_before_end"] = list(seen)
+            with f.open("a", encoding="utf-8") as h:
+                h.write('@@result {"href": null, "screenshot": "s.png"}\n')
+            yield b"\n"
+
+    async def fake_exec(*a, **k):
+        return FileProc([])
+
+    monkeypatch.setattr(poster_ego.asyncio, "create_subprocess_exec", fake_exec)
+    seen = []
+    out = asyncio.run(
+        poster_ego.post_comment(
+            video_id="OaviuM_8qQ4", text="글", shot_dir=tmp_path, on_status=seen.append
+        )
+    )
+    assert "입력 중" in box["seen_before_end"]
+    assert out["screenshot"] == "s.png"
+    assert seen.count("입력 중") == 1
