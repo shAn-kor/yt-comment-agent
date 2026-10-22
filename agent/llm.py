@@ -4,6 +4,7 @@ LLM_PROVIDER로 고른다: claude | gemini | groq | openrouter.
 비어 있으면 키가 있는 곳 → claude CLI 순서로 고르고, 둘 다 없으면 Gemini(무료 키 안내).
 """
 
+import base64
 import os
 import shutil
 import subprocess
@@ -136,6 +137,95 @@ def complete(prompt: str) -> str:
             return _openai_compatible(f, short, f.model)
         except RuntimeError as e2:
             raise RuntimeError(f"{e} / 대체 {e2}") from e2
+
+
+def media_available(*, video: bool = False) -> bool:
+    """영상은 Gemini, 이미지는 Gemini 또는 선택된 Claude API로 읽는다."""
+    if os.environ.get("GEMINI_API_KEY"):
+        return True
+    return (
+        not video
+        and provider_name() == "claude"
+        and bool(os.environ.get("ANTHROPIC_API_KEY"))
+    )
+
+
+def complete_media(prompt: str, media: list[tuple[str, bytes]]) -> str:
+    """작은 영상·이미지용 호출. 텍스트 complete의 공급자·대체 정책은 바꾸지 않는다."""
+    if not media or any(
+        mime not in {"video/mp4", "image/jpeg", "image/png"} for mime, _ in media
+    ):
+        raise ValueError("지원하지 않는 영상·이미지 형식")
+    encoded = [(mime, base64.b64encode(raw).decode("ascii")) for mime, raw in media]
+    p = OPENAI_COMPATIBLE["gemini"]
+    if key := os.environ.get(p.key_env):
+        # LLM_MODEL은 텍스트 공급자용일 수 있으므로 Gemini 기본 모델을 쓴다.
+        data = _post(
+            p,
+            f"https://generativelanguage.googleapis.com/v1beta/models/{p.model}:generateContent",
+            {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {"text": prompt},
+                            *[
+                                {"inline_data": {"mime_type": mime, "data": raw}}
+                                for mime, raw in encoded
+                            ],
+                        ],
+                    }
+                ]
+            },
+            {"x-goog-api-key": key},
+        )
+        try:
+            text = "".join(
+                part.get("text", "")
+                for part in data["candidates"][0]["content"]["parts"]
+            )
+            return _text(p, text)
+        except (KeyError, IndexError, TypeError) as e:
+            raise RuntimeError("Gemini 영상·이미지 응답 형식이 예상과 다름") from e
+    if any(mime == "video/mp4" for mime, _ in media) or not media_available():
+        raise RuntimeError("영상·이미지를 읽을 수 있는 API 키가 없음")
+    # Gemini 키가 없을 때만, 이미 선택된 Claude API로 이미지를 읽는다.
+    p = Provider("Claude", "", "ANTHROPIC_API_KEY", "", "claude-sonnet-5-5")
+    data = _post(
+        p,
+        "https://api.anthropic.com/v1/messages",
+        {
+            "model": _model("claude-sonnet-5-5"),
+            "max_tokens": 1024,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        *[
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": mime,
+                                    "data": raw,
+                                },
+                            }
+                            for mime, raw in encoded
+                        ],
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        },
+        {
+            "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+            "anthropic-version": "2023-06-01",
+        },
+    )
+    return _text(
+        p,
+        "".join(b["text"] for b in data.get("content", []) if b.get("type") == "text"),
+    )
 
 
 def _post(p: Provider, url: str, body: dict, headers: dict | None = None) -> dict:

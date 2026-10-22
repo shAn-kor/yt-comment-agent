@@ -61,6 +61,17 @@ def test_허용_채널_링크는_설정의_채널_이름으로(client):
     assert r.json()["video"]["channelName"] == server.config.channels[0].name
 
 
+def test_내용_없는_영상은_대시보드에_명확한_오류(client, monkeypatch):
+    monkeypatch.setattr(server, "session_drafts", [])
+    server.contexts["allowedVid1"].update(
+        title="IMG 0978", description="", transcript="", scene=""
+    )
+    r = client.post("/api/draft", json={"videoId": "allowedVid1"})
+    assert r.status_code == 422
+    assert r.json() == {"error": "영상 내용을 파악하지 못해 초안을 만들지 않음"}
+    assert not server.session_drafts
+
+
 def test_고친_글_다시_검사(client):
     v = client.post(
         "/api/validate",
@@ -103,6 +114,10 @@ def test_허용_밖_영상은_글이_틀려도_범위_이유로_차단(client, m
 
 
 def test_화면_밖_경로_차단(client):
-    for path in ("/shots/%2e%2e/%2e%2e/config.yaml", "/%2e%2e/config.yaml", "/shots/..%2f..%2fconfig.yaml"):
+    for path in (
+        "/shots/%2e%2e/%2e%2e/config.yaml",
+        "/%2e%2e/config.yaml",
+        "/shots/..%2f..%2fconfig.yaml",
+    ):
         r = client.get(path)
         assert r.status_code == 404 and "posting_scope" not in r.text, path

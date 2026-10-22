@@ -197,3 +197,60 @@ def test_대체도_실패하면_두_오류를_함께_알림(monkeypatch, replies
     with pytest.raises(RuntimeError, match="Gemini 오류 429.*대체 Groq 오류 413"):
         llm.complete("p")  # 일반 글이면 short가 없으니 같은 글을 보낸다
     assert replies[1]["json"]["messages"][0]["content"] == "p"
+
+
+def test_Gemini_네이티브_영상_요청은_기본_모델과_헤더_키(monkeypatch, calls):
+    monkeypatch.setenv("GEMINI_API_KEY", "secret")
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("LLM_MODEL", "text-only-model")
+    calls.reply = (200, {"candidates": [{"content": {"parts": [{"text": "장면"}]}}]})
+    assert llm.media_available(video=True)
+    assert llm.complete_media("보이는 내용", [("video/mp4", b"video")]) == "장면"
+    req = calls[0]
+    assert req["url"].endswith("/gemini-3.5-flash:generateContent")
+    assert "secret" not in req["url"]
+    assert req["headers"] == {"x-goog-api-key": "secret"}
+    assert req["json"]["contents"][0]["parts"] == [
+        {"text": "보이는 내용"},
+        {"inline_data": {"mime_type": "video/mp4", "data": "dmlkZW8="}},
+    ]
+
+
+def test_이미지도_Gemini_네이티브로(monkeypatch, calls):
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    calls.reply = (200, {"candidates": [{"content": {"parts": [{"text": "사진"}]}}]})
+    assert llm.complete_media("p", [("image/jpeg", b"jpeg")]) == "사진"
+    assert (
+        calls[0]["json"]["contents"][0]["parts"][1]["inline_data"]["mime_type"]
+        == "image/jpeg"
+    )
+
+
+def test_선택된_Claude_API는_이미지만_대체(monkeypatch, calls):
+    monkeypatch.setenv("LLM_PROVIDER", "claude")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    calls.reply = (200, {"content": [{"type": "text", "text": "사진"}]})
+    assert llm.media_available() and not llm.media_available(video=True)
+    assert llm.complete_media("p", [("image/jpeg", b"jpeg")]) == "사진"
+    req = calls[0]
+    assert req["url"] == "https://api.anthropic.com/v1/messages"
+    assert (
+        req["json"]["messages"][0]["content"][0]["source"]["media_type"] == "image/jpeg"
+    )
+    with pytest.raises(RuntimeError, match="API 키가 없음"):
+        llm.complete_media("p", [("video/mp4", b"video")])
+    assert len(calls) == 1
+
+
+def test_멀티모달_키_없으면_호출하지_않음(calls):
+    assert not llm.media_available()
+    with pytest.raises(RuntimeError, match="API 키가 없음"):
+        llm.complete_media("p", [("image/jpeg", b"jpeg")])
+    assert calls == []
+
+
+def test_영상_응답이_비었으면_오류(monkeypatch, calls):
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    calls.reply = (200, {"candidates": []})
+    with pytest.raises(RuntimeError, match="응답 형식"):
+        llm.complete_media("p", [("video/mp4", b"video")])
