@@ -31,11 +31,13 @@ def check_load_scope(video: dict, config: Config) -> dict:
 
 def check_post_scope(video: dict, config: Config) -> dict:
     """게시 허용 범위: test_only면 테스트 영상만"""
-    if video["videoId"] in config.test_videos:
-        return {"ok": True, "kind": "test"}
+    load = check_load_scope(video, config)
+    # 허용 밖 채널은 게시 모드와 상관없이 "허용 범위 밖"으로 알린다
+    if not load["ok"] or load["kind"] == "test":
+        return load
     if config.posting_scope != "channels":
         return _fail("테스트 모드: 본인 테스트 영상에만 게시")
-    return check_load_scope(video, config)
+    return load
 
 
 class PostHistory(Protocol):

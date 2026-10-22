@@ -83,12 +83,23 @@ def test_테스트_모드면_지정_채널에도_게시_차단(client):
     ] and not state["ok"]
 
 
-def test_검사에_떨어진_글은_게시_차단(client):
+def test_검사에_떨어진_글은_게시_차단(client, monkeypatch):
+    monkeypatch.setattr(server.config, "test_videos", ["allowedVid1"])
+    monkeypatch.setattr(server, "profile_ready", lambda _: True)
     r = client.post(
         "/api/post", json={"videoId": "allowedVid1", "comment": "짧음", "detail": ""}
     )
     assert r.status_code == 422
     assert server.store.list()[0]["reason"].startswith("검증 실패")
+
+
+def test_허용_밖_영상은_글이_틀려도_범위_이유로_차단(client, monkeypatch):
+    monkeypatch.setattr(server, "profile_ready", lambda _: True)
+    r = client.post(
+        "/api/post", json={"videoId": "outsideVid1", "comment": "짧음", "detail": ""}
+    )
+    assert r.status_code == 403 and r.json()["error"] == "허용 범위 밖 채널"
+    assert server.store.list()[0]["reason"] == "허용 범위 밖 채널"
 
 
 def test_화면_밖_경로_차단(client):

@@ -330,6 +330,10 @@ async def _start_post(body: PostIn) -> dict:
 
     if draft_only(video):
         block(403, "뜨기 직전 영상은 초안까지만")
+    # 허용 범위·영상당 1개 같은 운영 규칙을 먼저 본다. 게시할 수 없는 영상이면 글 내용과 상관없이 그 이유로 막는다
+    rule = check_post(video, name, config, store, ready=profile_ready)
+    if not rule["ok"]:
+        block(403, rule["reason"])
     v = validate_comment(
         body.comment,
         source=source_text(ctx),
@@ -339,9 +343,6 @@ async def _start_post(body: PostIn) -> dict:
     )
     if not v["ok"]:
         block(422, ", ".join(v["errors"]), f"검증 실패: {', '.join(v['errors'])}")
-    rule = check_post(video, name, config, store, ready=profile_ready)
-    if not rule["ok"]:
-        block(403, rule["reason"])
 
     profile = next(p for p in config.profiles if p.name == name)
     if profile.browser == "ego":

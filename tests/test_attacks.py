@@ -225,6 +225,8 @@ def test_동시_게시_요청은_하나만_검사로_들어감(tmp_path, monkeyp
         server, "contexts", {}
     )  # 서버를 막 켠 상태: 영상 자료를 받는 동안 await
     monkeypatch.setattr(server, "busy", False)
+    monkeypatch.setattr(server.config, "test_videos", [TEST_ID])
+    monkeypatch.setattr(server, "profile_ready", lambda _: True)
 
     def slow(video_id):
         time.sleep(0.2)
