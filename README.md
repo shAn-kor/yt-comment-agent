@@ -116,6 +116,7 @@ FastAPI (MIT), Uvicorn (BSD-3-Clause), HTTPX (BSD-3-Clause), PyYAML (MIT), Playw
 
 ## 더 읽기
 
+- [제작 의도 요약 (제출용 1쪽)](docs/INTENT-1page.md)
 - [제작 의도](docs/INTENT.md): 기능마다 왜 그렇게 만들었는지, 버린 시도
 - [기능별 구현 설명](docs/IMPLEMENTATION.md)
 - [할 일](TODO.md)
