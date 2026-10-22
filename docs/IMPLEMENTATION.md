@@ -273,7 +273,7 @@ FastAPI 앱이다. 요청 본문은 Pydantic 모델(`ResolveIn`, `DraftIn`, `Val
 | `GET /api/config`     | 계정 준비 상태, 게시 범위, 오늘 사용량, AI 종류         |
 | `POST /api/videos`    | 5개 채널 최신 영상                                      |
 | `POST /api/resolve`   | 링크 → 영상 ID → 채널 확인. 허용 밖이면 403과 차단 기록 |
-| `POST /api/draft`     | 고민 한 줄, 초안, 검사 결과, 게시 전 확인 결과          |
+| `POST /api/draft`     | 영상 요지, 초안, 검사 결과, 게시 전 확인 결과          |
 | `POST /api/validate`  | 사람이 고친 글을 다시 검사                              |
 | `POST /api/post`      | 최종 검사 후 게시 시작                                  |
 | `GET /api/job`        | 게시 진행 상태                                          |

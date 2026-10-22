@@ -342,7 +342,7 @@ function renderDetail() {
   const d = state.draft;
   $("#detail").innerHTML = `${videoCard(state.selected)}
     <div class="group">
-      <div class="group-title">영상 속 고민 한 줄</div>
+      <div class="group-title">영상 요지</div>
       <div class="concern">${esc(d.concern)}</div>
       <p class="evidence">근거 · ${esc(d.sourceLabel)}, 인기 댓글 ${d.commentCount}개를 읽음</p>
     </div>
