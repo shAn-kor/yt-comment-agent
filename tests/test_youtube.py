@@ -334,3 +334,19 @@ def test_썸네일도_크기_제한(monkeypatch):
     monkeypatch.setattr(youtube.httpx, "stream", lambda *a, **k: Thumbnail())
     with pytest.raises(ValueError, match="썸네일 크기 초과"):
         youtube._thumbnail_bytes("295yVVpRbmI")
+
+
+@pytest.mark.parametrize("status,calls_expected", [(503, 3), (400, 1)])
+def test_영상_분석은_붐빌_때만_다시_묻는다(monkeypatch, status, calls_expected):
+    calls, waits = [], []
+
+    def media(prompt, parts):
+        calls.append(1)
+        raise youtube.ProviderError("Gemini 오류", status)
+
+    monkeypatch.setattr(youtube, "complete_media", media)
+    monkeypatch.setattr(youtube.time, "sleep", waits.append)
+    with pytest.raises(youtube.ProviderError):
+        youtube._describe_scene("video/mp4", b"video")
+    assert len(calls) == calls_expected
+    assert waits == list(youtube.SCENE_RETRY_DELAYS)[: calls_expected - 1]

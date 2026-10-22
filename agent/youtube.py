@@ -17,7 +17,7 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 from .config import Channel, Rising
-from .llm import complete_media, media_available
+from .llm import FALLBACK_STATUS, ProviderError, complete_media, media_available
 
 
 VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}")  # \w는 한글도 받아서 쓰지 않는다
@@ -268,11 +268,25 @@ def _download_scene_video(video_id: str, info: dict, directory: Path) -> Path:
     return path
 
 
+# Gemini가 붐빌 때(429·503) 기다렸다가 다시 묻는 간격(초)
+SCENE_RETRY_DELAYS = (3, 8)
+
+
+def _complete_media_retry(prompt: str, media: list[tuple[str, bytes]]) -> str:
+    for delay in (*SCENE_RETRY_DELAYS, None):
+        try:
+            return complete_media(prompt, media)
+        except ProviderError as e:
+            if delay is None or e.status not in FALLBACK_STATUS:
+                raise
+            time.sleep(delay)
+
+
 def _describe_scene(mime: str, raw: bytes) -> str:
     prompt = SCENE_PROMPT
     if mime.startswith("image/"):
         prompt += "\n이 자료는 썸네일 한 장이다. 보이는 것만 설명하고 소리·움직임·영상 전체 내용은 추측하지 마라."
-    answer = complete_media(prompt, [(mime, raw)]).strip()
+    answer = _complete_media_retry(prompt, [(mime, raw)]).strip()
     # 일부 모델은 JSON을 코드 블록 안에 쓴다.
     answer = re.sub(r"^```(?:json)?\s*|\s*```$", "", answer)
     data = json.loads(answer)
