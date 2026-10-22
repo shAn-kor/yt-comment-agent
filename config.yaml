@@ -1,8 +1,10 @@
-# 내 컴퓨터의 크롬 프로필. 폴더는 처음 로그인할 때 만들어진다 (npm run login -- 유튜브1)
+# 내 컴퓨터의 크롬 프로필. 폴더는 처음 로그인할 때 만들어진다 (uv run python scripts/login.py 유튜브1)
 profiles:
   - { name: 유튜브1, dir: ./profiles/youtube1 }
   - { name: 유튜브2, dir: ./profiles/youtube2 }
   - { name: 유튜브3, dir: ./profiles/youtube3 }
+  # browser: ego — 크롬 프로필 대신 ego 브라우저에 로그인된 유튜브 계정으로 게시
+  - { name: 이고, browser: ego }
 
 # 불러오기 · 게시 허용 범위
 channels:

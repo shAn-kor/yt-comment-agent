@@ -25,6 +25,7 @@ LOGIN_MARK = ".agent-login"  # scripts/login.py가 프로필 폴더에 남기는
 class Profile:
     name: str
     dir: Path
+    browser: str = "chrome"  # chrome: 이 폴더의 크롬 프로필 / ego: ego 브라우저에 로그인된 계정
 
     def login_at(self) -> int | None:
         """login.py로 로그인 창을 연 시각(밀리초). 연 적이 없으면 None"""
@@ -81,7 +82,9 @@ def load_config(file: Path = ROOT / "config.yaml") -> Config:
         if isinstance(p, str):
             return Profile(p, ROOT / "profiles" / p)
         return Profile(
-            p["name"], (ROOT / (p.get("dir") or f"profiles/{p['name']}")).resolve()
+            p["name"],
+            (ROOT / (p.get("dir") or f"profiles/{p['name']}")).resolve(),
+            "ego" if p.get("browser") == "ego" else "chrome",
         )
 
     return Config(

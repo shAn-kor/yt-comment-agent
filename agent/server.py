@@ -41,6 +41,7 @@ DATA = ROOT / "data"
 SHOTS = DATA / "shots"
 SHOTS.mkdir(parents=True, exist_ok=True)
 store = Store(DATA / "agent.db")
+STARTED_MS = int(time.time() * 1000)
 
 contexts: dict[str, dict] = {}  # videoId -> 영상 자료 (자막·댓글)
 rising_ids: set[str] = set()  # 뜨기 직전 영상: 초안만 허용
@@ -98,6 +99,9 @@ async def local_only(request: Request, call_next):
 def profile_ready(name: str) -> bool:
     """login.py로 로그인 창을 연 적이 있고, 그 뒤에 "로그인 안 됨"으로 실패하지 않은 프로필"""
     p = next((p for p in config.profiles if p.name == name), None)
+    if p and p.browser == "ego":
+        # ego는 사용자가 쓰는 브라우저라 로그인 표시가 없다. 서버를 켠 뒤 "로그인 안 됨"으로 실패하지 않았으면 준비됨
+        return not store.login_failed_since(name, STARTED_MS)
     at = p.login_at() if p else None
     return at is not None and not store.login_failed_since(name, at)
 
@@ -339,7 +343,12 @@ async def _start_post(body: PostIn) -> dict:
     if not rule["ok"]:
         block(403, rule["reason"])
 
-    from .poster import PostError, post_comment  # Playwright는 게시할 때만 불러온다
+    profile = next(p for p in config.profiles if p.name == name)
+    if profile.browser == "ego":
+        from .poster_ego import post_comment
+    else:
+        from .poster import post_comment  # Playwright는 게시할 때만 불러온다
+    from .poster import PostError
 
     job_id = str(int(time.time() * 1000))
     job = jobs[job_id] = {
@@ -348,7 +357,7 @@ async def _start_post(body: PostIn) -> dict:
         "status": "대기",
         "done": False,
     }
-    profile_dir = next(p.dir for p in config.profiles if p.name == name)
+    profile_dir = profile.dir
 
     async def run():
         global busy

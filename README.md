@@ -15,6 +15,8 @@ uv run python scripts/login.py 유튜브1     # 일반 Chrome이 열린다. 테�
 
 `config.yaml`의 `test_videos`에 본인 테스트 영상 ID를 넣는다.
 
+크롬 대신 ego 브라우저(ego lite, `ego-browser` 명령)에 로그인된 유튜브 계정으로 게시하려면 `config.yaml`의 `profiles`에 `- { name: 이고, browser: ego }`를 두면 된다. 이때는 `login.py`가 필요 없다.
+
 선택: 프로젝트 폴더에 `.env` 파일을 만들면 아래 값을 읽는다.
 
 | 이름                 | 뜻                                                       |
@@ -95,6 +97,7 @@ agent/validate.py   댓글 검증기
 agent/rules.py      운영 규칙
 agent/store.py      SQLite 기록
 agent/poster.py     Playwright launch_persistent_context로 게시
+agent/poster_ego.py ego 브라우저(ego-browser nodejs)로 게시
 agent/config.py     config.yaml, .env 읽기
 scripts/login.py    프로필 첫 로그인 (일반 Chrome)
 public/             대시보드 화면
