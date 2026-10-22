@@ -266,9 +266,52 @@ def test_다운로드는_작은_MP4만_받고_크기_초과시_중단(monkeypatc
     monkeypatch.setattr(youtube, "YoutubeDL", Download)
     with pytest.raises(ValueError, match="크기 초과"):
         youtube._download_scene_video("295yVVpRbmI", {"duration": 5}, tmp_path)
-    assert options["format"] == "worst[ext=mp4][vcodec!=none][acodec!=none]"
+    assert (
+        options["format"]
+        == "worst[ext=mp4][vcodec!=none][acodec!=none]/worstvideo[ext=mp4]+worstaudio[ext=m4a]"
+    )
+    assert options["merge_output_format"] == "mp4"
     assert options["max_filesize"] == youtube.SCENE_MAX_BYTES
     assert options["match_filter"]({"duration": 601})
+
+
+@pytest.mark.parametrize("oversized", [False, True])
+def test_별도_화면과_오디오는_합산_크기_제한하고_MP4로_합침(
+    monkeypatch, tmp_path, oversized
+):
+    class Download:
+        def __init__(self, options):
+            self.options = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def extract_info(self, url, download):
+            assert "worstvideo[ext=mp4]+worstaudio[ext=m4a]" in self.options["format"]
+            assert self.options["merge_output_format"] == "mp4"
+            hook = self.options["progress_hooks"][0]
+            # Repeated progress for one stream replaces its count; streams add up.
+            size = youtube.SCENE_MAX_BYTES // 2
+            hook({"filename": "video.f160.mp4", "downloaded_bytes": size})
+            hook({"filename": "video.f160.mp4", "downloaded_bytes": size})
+            hook(
+                {
+                    "filename": "video.f140.m4a",
+                    "downloaded_bytes": size + int(oversized),
+                }
+            )
+            (tmp_path / "video.mp4").write_bytes(b"merged audio and video")
+
+    monkeypatch.setattr(youtube, "YoutubeDL", Download)
+    if oversized:
+        with pytest.raises(ValueError, match="크기 초과"):
+            youtube._download_scene_video("295yVVpRbmI", {"duration": 6}, tmp_path)
+    else:
+        path = youtube._download_scene_video("295yVVpRbmI", {"duration": 6}, tmp_path)
+        assert path.read_bytes() == b"merged audio and video"
 
 
 def test_썸네일도_크기_제한(monkeypatch):

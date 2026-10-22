@@ -229,11 +229,20 @@ def _download_scene_video(video_id: str, info: dict, directory: Path) -> Path:
     if reason := duration_filter(info):
         raise ValueError(reason)
 
+    stream_bytes = {}
+
     def check_size(progress):
-        if (
-            max(progress.get("downloaded_bytes") or 0, progress.get("total_bytes") or 0)
-            > SCENE_MAX_BYTES
-        ):
+        # YouTube는 화면과 오디오를 별도 스트림으로 줄 수 있다.
+        # max_filesize는 스트림별 제한이라 합산 크기도 확인한다.
+        stream = (
+            progress.get("filename")
+            or (progress.get("info_dict") or {}).get("format_id")
+            or "video"
+        )
+        stream_bytes[stream] = max(
+            progress.get("downloaded_bytes") or 0, progress.get("total_bytes") or 0
+        )
+        if sum(stream_bytes.values()) > SCENE_MAX_BYTES:
             raise ValueError("장면 분석용 영상 크기 초과")
 
     opts = {
@@ -241,7 +250,8 @@ def _download_scene_video(video_id: str, info: dict, directory: Path) -> Path:
         "no_warnings": True,
         "logger": _QuietDownload(),
         "noplaylist": True,
-        "format": "worst[ext=mp4][vcodec!=none][acodec!=none]",
+        "format": "worst[ext=mp4][vcodec!=none][acodec!=none]/worstvideo[ext=mp4]+worstaudio[ext=m4a]",
+        "merge_output_format": "mp4",  # 별도 화면·오디오는 yt-dlp가 ffmpeg로 합친다
         "outtmpl": str(directory / "video.%(ext)s"),
         "max_filesize": SCENE_MAX_BYTES,
         "match_filter": duration_filter,
