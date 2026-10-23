@@ -116,6 +116,7 @@ def test_초안_API는_선택한_입장도_반환(client, monkeypatch):
                 {
                     "relevant": True,
                     "stance": "한줄요약",
+                    "bridge": "계속 기다려도 될까?",
                     "concern": "연락 고민",
                     "detail": "연락 빈도부터 줄",
                     "comment": GOOD,
@@ -125,6 +126,7 @@ def test_초안_API는_선택한_입장도_반환(client, monkeypatch):
     )
     r = client.post("/api/draft", json={"videoId": "allowedVid1"})
     assert r.status_code == 200 and r.json()["stance"] == "한줄요약"
+    assert r.json()["bridge"] == "계속 기다려도 될까?"
 
 
 def test_고친_글_다시_검사(client):
@@ -132,7 +134,7 @@ def test_고친_글_다시_검사(client):
         "/api/validate",
         json={"videoId": "allowedVid1", "comment": GOOD, "detail": "연락 빈도부터 줄"},
     ).json()
-    assert v["ok"] and len(v["checks"]) == 10
+    assert v["ok"] and len(v["checks"]) == 13
 
 
 def test_테스트_모드면_지정_채널에도_게시_차단(client):
@@ -171,7 +173,7 @@ def test_브랜드_맥락_없는_수정_댓글은_게시_전에_차단(client, m
         json={"videoId": "allowedVid1", "comment": text, "detail": "연락 빈도부터 줄"},
     )
     assert r.status_code == 422
-    assert "15자 이내" in r.json()["error"]
+    assert "40자 이내" in r.json()["error"]
     assert server.store.list()[0]["status"] == "blocked"
 
 

@@ -112,13 +112,13 @@ tests/              pytest
 
 ## 댓글 말투 비교
 
-초안은 요약·반박·질문 같은 입장을 먼저 고르고, 영상의 구체적인 내용을 짧게 풀어 쓴다. 목표는 40~80자다 (설정의 40~120자 제한은 유지). 상투적인 홍보 문구와 근거를 감싼 따옴표는 검사기가 막는다.
+초안은 영상에 대한 내 반응에서 시작해, 영상이 답해 주지 못하는 내 연애 질문으로 이어진다. 일반적인 사주·궁합 관심과 다른 시청자에게 묻는 말을 먼저 두고, 브랜드는 마지막에 잠정적인 인상으로 언급한다. 목표는 70~110자다 (설정의 40~120자 제한은 유지). 검사기는 상투어·따옴표 인용·반응 없는 요약·반복되는 브랜드 문장을 막는다.
 
 ```bash
-uv run python scripts/compare_voice.py --count 8 --delay 65
+LLM_PROVIDER=groq LLM_MODEL=openai/gpt-oss-120b uv run python scripts/compare_voice.py --count 8 --delay 65 --baseline 5a88e9a --output "$HOME/ai-workspace/scratch/comment-research/blind2-groq"
 ```
 
-설정된 AI로 이전·새 프롬프트를 한 번씩 생성하고 `~/ai-workspace/scratch/comment-research/blind/`에 블라인드 비교표와 버전 키를 저장한다. `--contexts`와 `--comments`로 저장된 영상·댓글 자료를 재사용할 수 있다. 게시 기능은 없다. 검사 결과는 품질 선호도 점수를 대신하지 않는다.
+한 공급자·모델로 이전·새 프롬프트를 한 번씩 생성하고, 위 예시는 `~/ai-workspace/scratch/comment-research/blind2-groq/`에 블라인드 비교표와 버전 키를 저장한다. 공급자 자동 대체는 쓰지 않는다. 각 초안의 공급자·모델과 빈 응답의 한 차례 추가 요청을 기록한다. `--contexts`와 `--comments`로 저장된 영상·댓글 자료를 재사용할 수 있다. 게시 기능은 없다. 검사 결과는 품질 선호도 점수를 대신하지 않는다.
 
 ## 알려진 한계
 

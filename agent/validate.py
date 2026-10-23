@@ -44,7 +44,13 @@ FOREIGN_SCRIPT = re.compile(
 ANCHOR_MIN = 5  # 인용구로 인정하는 최소 글자 수 (공백·문장부호 제외)
 # 짝은 낱말 첫머리일 때만 인정한다 (반짝반짝·깜짝·짝짝 속 짝은 연애 맥락이 아니다)
 BRAND_CONTEXT = re.compile(r"연애사주|사주|연애운|궁합|운세|(?<![가-힣])짝(?!짝)|인연")
-BRAND_CONTEXT_DISTANCE = 15  # 브랜드와 맥락 표현 사이의 최대 글자 수
+BRAND_CONTEXT_DISTANCE = 40  # 앞 문장에 있는 맥락 표현 끝부터 브랜드까지
+ENDING_SIMILARITY = 0.45  # 짧은 종결 문장의 어미만 바꾼 반복도 잡는다
+REACTION = re.compile(
+    r"(?<![가-힣])(?:나|내|저|제|우리)(?:는|도|가|만|를|랑|한테|에게|의)?(?![가-힣])"
+    r"|(?<![가-힣])중(?![가-힣])|싶|있음\s*[?？]"
+)
+SENTENCE_END = ".!?…\n。！？"
 STOCK_PHRASES = ("인연은 타이밍", "잘 본다던데", "유용하네요", "공감 100", "뜨끔했")
 QUOTE_PAIRS = (
     ('"', '"'),
@@ -72,14 +78,40 @@ def _quoted_detail(text: str, detail: str, anchor: str) -> bool:
     )
 
 
+def _sentences(text: str) -> list[str]:
+    return [
+        s.strip()
+        for s in re.findall(r"[^.!?…\n。！？]+(?:[.!?…\n。！？]+|$)", text)
+        if s.strip(SENTENCE_END + " \t\r")
+    ]
+
+
+def _brand_sentence(text: str, brand: str) -> str:
+    return " ".join(s for s in _sentences(text) if brand in s)
+
+
 def _has_brand_context(text: str, brand: str) -> bool:
-    for sentence in re.split(r"[.!?…\n。！？]+", text):
-        for name in re.finditer(re.escape(brand), sentence):
-            for context in BRAND_CONTEXT.finditer(sentence):
-                gap = max(context.start() - name.end(), name.start() - context.end(), 0)
-                if gap <= BRAND_CONTEXT_DISTANCE:
-                    return True
-    return False
+    if any(
+        brand in sentence and BRAND_CONTEXT.search(sentence)
+        for sentence in _sentences(text)
+    ):
+        return True
+    return any(
+        name.start() - context.end() <= BRAND_CONTEXT_DISTANCE
+        for name in re.finditer(re.escape(brand), text)
+        for context in BRAND_CONTEXT.finditer(text[: name.start()])
+    )
+
+
+def _brand_is_late(text: str, brand: str) -> bool:
+    at = text.find(brand)
+    sentences = _sentences(text)
+    return bool(
+        at > 0
+        and text[:at].strip()
+        and sentences
+        and (brand in sentences[-1] or at >= len(text) * 0.65)
+    )
 
 
 def _bigrams(s) -> set[str]:
@@ -155,7 +187,24 @@ def validate_comment(
         "brand_context",
         f"{brand}에 연애사주 맥락",
         n == 0 or _has_brand_context(plain, brand),
-        f'"{brand}"과 같은 문장에서 15자 이내에 연애사주·사주·연애운·궁합·운세·짝·인연 중 하나를 넣어 관심을 표현하세요 (이용 후기 금지)',
+        f'"{brand}"과 같은 문장 또는 앞선 40자 이내에 연애사주·사주·연애운·궁합·운세·짝·인연 중 하나를 넣어 관심을 표현하세요 (이용 후기 금지)',
+    )
+    add(
+        "brand_position",
+        "브랜드는 끝부분에",
+        n == 0 or _brand_is_late(plain, brand),
+        "브랜드로 시작하지 말고 마지막 문장 또는 댓글의 뒤쪽 35%에 브랜드를 넣으세요",
+    )
+    reaction = any(
+        REACTION.search(sentence)
+        for sentence in _sentences(plain)
+        if brand not in sentence
+    )
+    add(
+        "reaction",
+        "브랜드 앞에 시청자 반응",
+        reaction,
+        "브랜드가 없는 문장에 나·내·저·제·우리·중·싶·있음? 같은 시청자 반응을 넣으세요. 영상 주장만 되풀이하지 마세요",
     )
     link, tag = bool(LINK.search(plain)), bool(HASHTAG.search(plain))
     add(
@@ -231,6 +280,32 @@ def validate_comment(
 
     dup = next((p for p in previous or [] if p and similarity(text, p) >= 0.5), None)
     add("unique", "이전 댓글과 다름", not dup, "이전 댓글과 너무 비슷함" if dup else "")
+    ending = _brand_sentence(plain, brand).replace(brand, "")
+    repeated_ending = next(
+        (
+            p
+            for p in previous or []
+            if ending
+            and p
+            and brand in p
+            and similarity(
+                ending,
+                _brand_sentence(unicodedata.normalize("NFKC", p), brand).replace(
+                    brand, ""
+                ),
+            )
+            >= ENDING_SIMILARITY
+        ),
+        None,
+    )
+    add(
+        "ending_unique",
+        "브랜드 문장도 영상마다 다르게",
+        not repeated_ending,
+        "이전 댓글과 브랜드 문장이 너무 비슷합니다. 영상 고민에 맞춰 마지막 문장의 어휘와 구성을 바꾸세요"
+        if repeated_ending
+        else "",
+    )
 
     errors = [c["note"] for c in checks if not c["ok"]]
     return {

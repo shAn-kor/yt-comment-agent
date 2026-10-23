@@ -22,18 +22,20 @@ import httpx
 
 from agent.config import load_config, load_env
 from agent.generate import build_prompt, parse_json, source_text, voice_comments
-from agent.llm import backend_name, complete
+from agent.llm import OPENAI_COMPATIBLE, backend_name, complete, provider_name
 from agent.validate import validate_comment
 from agent.youtube import fetch_channel_feed, get_video_context
-from scripts.voice_baseline import build_prompt as old_build_prompt
+from scripts.bridge_baseline import build_prompt as bridge_baseline_prompt
+from scripts.voice_baseline import build_prompt as original_baseline_prompt
 
-BASE_REVISION = "b53e4f7"
+BASE_REVISION = "5a88e9a"
+BASELINES = {"b53e4f7": original_baseline_prompt, "5a88e9a": bridge_baseline_prompt}
 RESEARCH = Path.home() / "ai-workspace/scratch/comment-research"
 
 
-def baseline_builder():
+def baseline_builder(revision=BASE_REVISION):
     """Use the frozen prompt, without its original generation/retry loop."""
-    return old_build_prompt
+    return BASELINES[revision]
 
 
 def _has_video_material(ctx: dict) -> bool:
@@ -109,6 +111,28 @@ def safe_error(error: Exception) -> str:
     return f"{type(error).__name__}: {text}"
 
 
+def configured_model() -> tuple[str, str]:
+    name = provider_name()
+    if name == "gemini" and os.environ.get("GROQ_API_KEY"):
+        raise ValueError(
+            "비교 중 공급자가 섞이지 않도록 자동 대체가 없는 공급자로 고정하세요 (예: LLM_PROVIDER=groq)"
+        )
+    if name in OPENAI_COMPATIBLE:
+        provider = OPENAI_COMPATIBLE[name]
+        if not os.environ.get(provider.key_env):
+            raise ValueError(f"{provider.name}: {provider.key_env}가 없음")
+        return name, os.environ.get("LLM_MODEL") or provider.model
+    return name, os.environ.get("LLM_MODEL") or (
+        "claude-sonnet-5-5" if os.environ.get("ANTHROPIC_API_KEY") else "CLI default"
+    )
+
+
+def daily_quota(message: str) -> bool:
+    return bool(
+        re.search(r"daily|per day|\b(?:RPD|TPD)\b|하루|일일", message, re.IGNORECASE)
+    )
+
+
 def md(text) -> str:
     return re.sub(r"([\\`*_{}\[\]<>#+|])", r"\\\1", re.sub(r"\s+", " ", str(text)))
 
@@ -119,8 +143,14 @@ def save_sheet(output: Path, record: dict) -> None:
         "",
         "영상 내용에 맞고 광고 말투가 덜한 쪽을 고른다. 검증 결과와 버전 정보는 key.json에 따로 저장한다.",
         "각 초안은 단발 생성(single-shot)이며, 검사 결과를 붙여 다시 쓰는 재작성 루프는 사용하지 않았다. 영상 자료는 실제 자막 또는 장면 설명과 영상 설명을 포함한다.",
+        "각 버전에는 그 버전에서 앞서 만든 초안을 참고 이력으로 넘겼다. 두 버전의 이력은 섞지 않았다.",
         "",
     ]
+    if record.get("provider"):
+        lines += [
+            f"두 버전 모두 {md(record['provider'])} · {md(record['model'])}로 고정했다. 공급자 자동 대체는 사용하지 않았다.",
+            "",
+        ]
     recovered = sum(
         len(d.get("error_history", []))
         for row in record["rows"]
@@ -175,14 +205,21 @@ def compare(
     backend="",
     delay=0,
     sleep=time.sleep,
+    baseline_revision=BASE_REVISION,
+    provider="",
+    model="",
 ) -> dict:
     if (output / "key.json").exists() or (output / "sheet.md").exists():
         raise ValueError("비교 결과가 이미 있음. 다른 --output 폴더를 지정하세요")
     seed = random.SystemRandom().getrandbits(64) if seed is None else seed
     rng = random.Random(seed)
     record = {
-        "baseline_revision": BASE_REVISION,
+        "baseline_revision": baseline_revision,
+        "history_mode": "per-arm newest-first, no validation feedback",
         "backend": backend,
+        "provider": provider,
+        "model": model,
+        "prompt_variant": "short" if provider == "groq" else "full",
         "seed": seed,
         "delay_seconds": delay,
         "stop_reason": "",
@@ -205,71 +242,108 @@ def compare(
         )
     save_sheet(output, record)
     generated = 0
+    histories = {"old": [], "new": []}
     for ctx, row in zip(contexts, record["rows"]):
         versions = ["old", "new"]
         rng.shuffle(versions)  # generation order is independent of blind display order
         for version in versions:
-            if generated and delay:
-                sleep(delay)
-            generated += 1
-            print(f"generate {ctx['videoId']} {version}", flush=True)
-            prompt_ctx = dict(ctx)
-            if version == "old":
-                # The frozen prompt expects strings and retains the original raw order.
-                prompt_ctx["topComments"] = [
-                    (str(c.get("text", "")) if isinstance(c, dict) else str(c))[:200]
-                    for c in ctx.get("topComments", [])
-                ][:20]
-            builder = old_builder if version == "old" else build_prompt
-            try:
-                prompt = builder(
-                    prompt_ctx, brand=rules.brand, min=rules.min, max=rules.max
-                )
-                parsed = parse_json(
-                    llm(prompt)
-                )  # exactly one generation, no validation-driven retries
-                validation = validate_comment(
-                    parsed["comment"],
-                    source=source_text(ctx),
-                    detail=parsed["detail"],
-                    brand=rules.brand,
-                    min=rules.min,
-                    max=rules.max,
-                )
-                if not parsed["relevant"]:
-                    validation["ok"] = False
-                    validation["errors"].append("연애와 관련 없는 영상으로 초안 거절")
-                row["drafts"][version] = {
-                    **parsed,
-                    "validation": validation,
-                    "chars": validation["chars"],
-                }
+            errors = []
+            for attempt in (1, 2):  # only empty answers get one extra request
+                if generated and delay:
+                    sleep(delay)
+                generated += 1
                 print(
-                    f"result {version}: {validation['chars']} chars, ok={validation['ok']}",
+                    f"generate {ctx['videoId']} {version} attempt={attempt} provider={provider} model={model}",
                     flush=True,
                 )
-            except (
-                RuntimeError,
-                ValueError,
-                TypeError,
-                KeyError,
-                OSError,
-                httpx.HTTPError,
-            ) as error:
-                message = safe_error(error)
-                row["drafts"][version] = {
-                    "error": message,
-                    "chars": 0,
-                    "validation": {"ok": False, "errors": [message]},
+                metadata = {
+                    "provider": provider,
+                    "model": model,
+                    "prompt_variant": record["prompt_variant"],
+                    "attempts": attempt,
+                    "previous_count": len(histories[version]),
                 }
-                print(message, flush=True)
-                if re.search(
-                    r"\b(?:429|503)\b|quota|한도 초과", message, re.IGNORECASE
-                ):
-                    record["stop_reason"] = message
-            save_sheet(output, record)
-            if record["stop_reason"]:
-                return record
+                prompt_ctx = dict(ctx)
+                if version == "old" and baseline_revision == "b53e4f7":
+                    prompt_ctx["topComments"] = [
+                        (str(c.get("text", "")) if isinstance(c, dict) else str(c))[
+                            :200
+                        ]
+                        for c in ctx.get("topComments", [])
+                    ][:20]
+                builder = old_builder if version == "old" else build_prompt
+                retry_empty = False
+                try:
+                    prompt = builder(
+                        prompt_ctx,
+                        brand=rules.brand,
+                        min=rules.min,
+                        max=rules.max,
+                        previous=histories[version],
+                    )
+                    if provider == "groq":
+                        prompt = getattr(prompt, "short", prompt)
+                    raw = llm(prompt)
+                    if not str(raw).strip():
+                        raise RuntimeError("LLM이 빈 답을 돌려줌")
+                    parsed = parse_json(raw)
+                    validation = validate_comment(
+                        parsed["comment"],
+                        source=source_text(ctx),
+                        detail=parsed["detail"],
+                        brand=rules.brand,
+                        min=rules.min,
+                        max=rules.max,
+                        previous=histories[version],
+                    )
+                    if not parsed["relevant"]:
+                        validation["ok"] = False
+                        validation["errors"].append(
+                            "연애와 관련 없는 영상으로 초안 거절"
+                        )
+                    row["drafts"][version] = {
+                        **parsed,
+                        **metadata,
+                        "validation": validation,
+                        "chars": validation["chars"],
+                        "error_history": list(errors),
+                    }
+                    if parsed["comment"] and parsed["relevant"]:
+                        histories[version].insert(0, parsed["comment"])
+                    print(
+                        f"result {version}: {validation['chars']} chars, ok={validation['ok']}",
+                        flush=True,
+                    )
+                except (
+                    RuntimeError,
+                    ValueError,
+                    TypeError,
+                    KeyError,
+                    OSError,
+                    httpx.HTTPError,
+                ) as error:
+                    message = safe_error(error)
+                    row["drafts"][version] = {
+                        **metadata,
+                        "error": message,
+                        "error_history": list(errors),
+                        "chars": 0,
+                        "validation": {"ok": False, "errors": [message]},
+                    }
+                    print(message, flush=True)
+                    if daily_quota(message):
+                        record["stop_reason"] = message
+                    retry_empty = (
+                        attempt == 1
+                        and not record["stop_reason"]
+                        and bool(re.search(r"빈\s*답|empty", message, re.IGNORECASE))
+                    )
+                    errors.append(message)
+                save_sheet(output, record)
+                if record["stop_reason"]:
+                    return record
+                if not retry_empty:
+                    break
     return record
 
 
@@ -280,7 +354,8 @@ def main(argv=None) -> int:
         "--contexts", type=Path, help="cached get_video_context JSON list"
     )
     parser.add_argument("--comments", type=Path, default=RESEARCH / "comments.jsonl")
-    parser.add_argument("--output", type=Path, default=RESEARCH / "blind")
+    parser.add_argument("--output", type=Path, default=RESEARCH / "blind2")
+    parser.add_argument("--baseline", choices=tuple(BASELINES), default=BASE_REVISION)
     parser.add_argument("--seed", type=int)
     parser.add_argument(
         "--delay",
@@ -297,16 +372,20 @@ def main(argv=None) -> int:
     load_env()
     config = load_config()
     try:
+        provider, model = configured_model()
         contexts = select_contexts(config, args.count, args.contexts)
         attach_likes(contexts, args.comments)
         result = compare(
             contexts,
             config.comment,
             args.output,
-            old_builder=baseline_builder(),
+            old_builder=baseline_builder(args.baseline),
             seed=args.seed,
             backend=backend_name(),
             delay=args.delay,
+            baseline_revision=args.baseline,
+            provider=provider,
+            model=model,
         )
     except (
         RuntimeError,

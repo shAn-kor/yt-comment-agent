@@ -1,6 +1,6 @@
 import pytest
 
-from agent.validate import count_chars, similarity, validate_comment
+from agent.validate import ENDING_SIMILARITY, count_chars, similarity, validate_comment
 
 SOURCE = "남자가 연락을 줄이는 진짜 이유. 남자는 확신이 없으면 연락 빈도부터 줄입니다. 읽씹은 관심이 식었다는 신호일 수 있어요."
 GOOD = (
@@ -22,6 +22,8 @@ def test_조건을_다_지키면_통과():
         "length",
         "brand",
         "brand_context",
+        "brand_position",
+        "reaction",
         "link",
         "fake",
         "script",
@@ -29,6 +31,7 @@ def test_조건을_다_지키면_통과():
         "anchor",
         "quote",
         "unique",
+        "ending_unique",
     ]
 
 
@@ -57,9 +60,14 @@ def test_브랜드는_정확히_한_번():
         "인연이 궁금해서 운명원을 찾아보고 싶다",
         "운명원" + "가" * 15 + "궁합",
         "사주" + "가" * 15 + "운명원",
+        "연애사주가 궁금하다. 운명원은 어떨까",
+        "사주가 궁금하다\n운명원도 궁금하다",
+        "운명원" + "가" * 16 + "궁합",
+        "사주" + "가" * 16 + "운명원",
+        "사주." + "가" * 39 + "운명원",  # 단어 끝부터 40자
     ],
 )
-def test_브랜드_앞뒤_같은_문장_15자_이내_맥락이면_통과(text):
+def test_같은_문장이나_앞선_40자_맥락이면_통과(text):
     v = validate_comment(text, **OPTS)
     assert next(c for c in v["checks"] if c["key"] == "brand_context")["ok"]
 
@@ -68,21 +76,18 @@ def test_브랜드_앞뒤_같은_문장_15자_이내_맥락이면_통과(text):
     "text",
     [
         "운명원도 궁금해지네요",
-        "연애사주가 궁금하다. 운명원은 어떨까",
         "운명원도 궁금하네! 인연도 궁금해",
-        "사주가 궁금하다\n운명원도 궁금하다",
         "운명원 이름은 반짝반짝 예뻐서 어떤 곳인지 궁금해요",
         "운명원 얘기에 깜짝 놀랐어요",
         "짝짝 박수 치고 운명원도 궁금해요",
-        "운명원" + "가" * 16 + "궁합",
-        "사주" + "가" * 16 + "운명원",
+        "사주." + "가" * 40 + "운명원",  # 앞선 문장은 41자부터 거절
     ],
 )
-def test_브랜드_맥락_없거나_다른_문장_멀리_있으면_차단(text):
+def test_브랜드_맥락_없거나_앞선_맥락이_멀리_있으면_차단(text):
     v = validate_comment(text, **OPTS)
     check = next(c for c in v["checks"] if c["key"] == "brand_context")
     assert not check["ok"]
-    assert "같은 문장" in check["note"] and "15자 이내" in check["note"]
+    assert "같은 문장" in check["note"] and "40자 이내" in check["note"]
     assert "관심을 표현" in check["note"] and check["note"] in v["errors"]
 
 
@@ -160,10 +165,122 @@ def test_detail이_포함된_긴_인용문도_차단():
 
 
 def test_입장과_자연스러운_근거_표현은_허용():
-    text = "연락 빈도부터 줄면 그냥 마음 없는 거 아닌가. 내 쪽은 운명원 가서 궁합이나 볼까 싶다"
+    text = "나만 연락 빈도부터 줄면 마음 없는 거라고 생각함? 내 쪽은 운명원 가서 궁합이나 볼까 싶다"
     assert errors(text) == ""
     assert "상투적인 표현" not in errors(GOOD + " 공감은 가지만 내 생각은 좀 다름")
     assert "따옴표를 빼고" not in errors(GOOD + " ‘나’부터 생각할 일")
+
+
+def rule(text, key, **kw):
+    return next(
+        c for c in validate_comment(text, **{**OPTS, **kw})["checks"] if c["key"] == key
+    )
+
+
+def test_사용자_예시와_다른_시청자에게_사주_경험_질문은_통과():
+    text = "상황 따라 달라진다는 말 듣고 그 사람 이해하려다 또 기다리는 중. 결국 우리 궁합 문제 아닌가 싶어서 연애사주 한번 보고 싶어지는데 사주 본 사람 있음? 운명원이란 곳이 괜찮아 보이던데"
+    v = validate_comment(
+        text,
+        source="상황 따라 달라진다는 말",
+        detail="상황 따라 달라진다는",
+        min=40,
+        max=120,
+    )
+    assert v["ok"], v["errors"]
+    assert (
+        rule(text.replace("사주 본 사람 있음?", "사주 봤는데 맞더라."), "fake")["ok"]
+        is False
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "나도 기다리는 중. 궁합이나 알아볼까. 운명원이란 곳 얘기가 있던데",
+        "나도 " + "가" * 70 + ". 운명원 궁합은 어떰? 다들 궁금함?",
+    ],
+)
+def test_브랜드가_마지막_문장이나_뒤쪽_35퍼센트면_허용(text):
+    assert rule(text, "brand_position")["ok"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "운명원 궁합을 알아볼까. 나도 연락이 줄어서 기다리는 중.",
+        "나도 고민 중. 운명원 사주 궁금함. " + "다른 생각이 이어진다" * 7 + ".",
+    ],
+)
+def test_브랜드로_시작하거나_앞쪽_중간에_끼우면_차단(text):
+    check = rule(text, "brand_position")
+    assert not check["ok"] and "뒤쪽 35%" in check["note"]
+
+
+@pytest.mark.parametrize(
+    "reaction",
+    [
+        "나도 기다린다",
+        "내가 더 궁금하다",
+        "저도 헷갈린다",
+        "제 생각은 다르다",
+        "우리 문제 같다",
+        "기다리는 중",
+        "더 알고 싶다",
+        "비슷한 사람 있음?",
+    ],
+)
+def test_브랜드_밖의_시청자_반응을_허용(reaction):
+    assert rule(reaction + ". 운명원 사주 얘기 있던데", "reaction")["ok"]
+
+
+@pytest.mark.parametrize(
+    "reaction",
+    [
+        "연락 빈도부터 줄면 마음 없는 거다",
+        "자기 일에 집중하는 게 중요하다",
+        "하나만 기억하면 된다",
+        "제목이 내용을 요약한다",
+    ],
+)
+def test_주장만_되풀이하거나_다른_단어_속_표현은_반응이_아님(reaction):
+    check = rule(reaction + ". 운명원에서 내 궁합을 보고 싶다", "reaction")
+    assert not check["ok"] and "브랜드가 없는 문장" in check["note"]
+
+
+def test_반응이_브랜드_문장에만_있으면_차단():
+    assert not rule("운명원에서 나도 내 궁합을 보고 싶다", "reaction")["ok"]
+
+
+@pytest.mark.parametrize(
+    "first,second",
+    [
+        ("내 쪽은 운명원에 가서 궁합이라도 볼까", "내 쪽은 운명원 가서 궁합이나 볼까"),
+        ("운명원이란 곳이 괜찮아 보이던데", "운명원이란 데가 괜찮아 보이던데"),
+    ],
+)
+def test_문장_전체가_달라도_어미만_바꾼_브랜드_끝문장은_차단(first, second):
+    assert (
+        similarity(first.replace("운명원", ""), second.replace("운명원", ""))
+        >= ENDING_SIMILARITY
+    )
+    current = "연락 빈도부터 줄어드니 나도 기다리기 싫음. " + first
+    previous = "표정은 웃는데 약속은 비워두니 내 쪽이 지침. " + second
+    assert rule(current, "unique", previous=[previous])["ok"]
+    check = rule(current, "ending_unique", previous=[previous])
+    assert not check["ok"] and "어휘와 구성" in check["note"]
+
+
+def test_브랜드만_같고_다른_종결_문장은_허용():
+    first, second = "운명원이란 곳이 괜찮아 보이던데", "운명원 얘기 많던데"
+    assert (
+        similarity(first.replace("운명원", ""), second.replace("운명원", ""))
+        < ENDING_SIMILARITY
+    )
+    assert rule(
+        "나도 궁합은 궁금함. " + first,
+        "ending_unique",
+        previous=["다들 사주 본 사람 있음? " + second],
+    )["ok"]
 
 
 def test_이전_댓글과_비슷하면_차단():

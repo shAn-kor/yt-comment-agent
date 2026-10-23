@@ -28,6 +28,7 @@ def test_AI_응답_JSON_파싱():
     assert j == {
         "relevant": True,
         "stance": "",
+        "bridge": "",
         "concern": "고민",
         "detail": "말",
         "comment": "댓글",
@@ -124,7 +125,7 @@ def test_브랜드_맥락_없으면_구체적인_안내로_재생성():
 
     draft = draft_comment(CTX, **RULES, llm=fake_llm)
     assert draft["attempts"] == 2 and draft["validation"]["ok"]
-    assert "같은 문장에서 15자 이내" in prompts[1]
+    assert "앞선 40자 이내" in prompts[1]
 
 
 def test_relevant가_문자열이면_boolean_안내로_다시_요청():
@@ -178,11 +179,15 @@ def test_프롬프트는_연애_관련성_확인_후_고민을_먼저_정리():
         prompt.index("0) relevant")
         < prompt.index("1) concern")
         < prompt.index("2) stance")
-        < prompt.index("3) comment")
+        < prompt.index("3) bridge")
+        < prompt.index("4) comment")
     )
     assert "연애·데이트·연인 관계" in prompt and "false" in prompt
-    assert "운명원 가서 궁합이나 볼까" in prompt and ctx["scene"] in prompt
-    assert "40~80자" in prompt and "역설·자기고백" in prompt
+    assert "운명원이란 곳이 괜찮아 보이던데" in prompt and ctx["scene"] in prompt
+    assert "70~110자" in prompt and "역설·자기고백" in prompt
+    assert "브랜드 없이 연애사주·궁합" in prompt and "다른 시청자에게 질문" in prompt
+    assert "연결이 어렵다는 이유로 거절하지 말고" in prompt
+    assert "고정된 마지막 문장을 만들지 마라" in prompt
     assert "따옴표로 감싸지 마라" in prompt and "기본적으로 생략" in prompt
     assert '"relevant": true' in prompt
     assert "제목과 설명만 사용" not in prompt
@@ -221,6 +226,10 @@ def test_인기_댓글은_좋아요순_말투_참고이며_홍보와_링크는_�
 def test_선택한_입장은_JSON에_보존():
     parsed = parse_json('{"stance":"반박·비틀기","comment":"내용"}')
     assert parsed["stance"] == "반박·비틀기"
+    assert (
+        parse_json('{"bridge":"이 사람을 기다려도 될까?"}')["bridge"]
+        == "이 사람을 기다려도 될까?"
+    )
     assert parse_json('{"stance":"자기고백"}')["stance"] == "자기고백"
 
 
@@ -240,7 +249,7 @@ def test_장면_설명도_detail_검사_근거():
                 "relevant": True,
                 "concern": "연인의 연락이 줄어 불안한 고민",
                 "detail": "서로 손을 잡고",
-                "comment": "서로 손을 잡고 걷다가도 연락이 줄면 불안하다는 게 공감돼요. 내 인연은 어떨지 운명원 연애사주도 궁금해지네요.",
+                "comment": "서로 손을 잡고 걷는데도 나만 불안한가 싶네요. 내 인연은 어떨지 운명원 연애사주도 궁금해지네요.",
             }
         ),
     )

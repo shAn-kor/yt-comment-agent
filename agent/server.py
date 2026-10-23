@@ -291,6 +291,7 @@ async def draft(body: DraftIn):
         "commentCount": len(ctx["topComments"]),
         "concern": d["concern"],
         "stance": d.get("stance", ""),
+        "bridge": d.get("bridge", ""),
         "detail": d["detail"],
         "comment": d["comment"],
         "attempts": d["attempts"],
