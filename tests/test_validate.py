@@ -1,3 +1,5 @@
+import pytest
+
 from agent.validate import count_chars, similarity, validate_comment
 
 SOURCE = "남자가 연락을 줄이는 진짜 이유. 남자는 확신이 없으면 연락 빈도부터 줄입니다. 읽씹은 관심이 식었다는 신호일 수 있어요."
@@ -19,6 +21,7 @@ def test_조건을_다_지키면_통과():
     assert [c["key"] for c in v["checks"]] == [
         "length",
         "brand",
+        "brand_context",
         "link",
         "fake",
         "script",
@@ -36,6 +39,58 @@ def test_글자_수_범위():
 def test_브랜드는_정확히_한_번():
     assert "없음" in errors(GOOD.replace("운명원", "그곳"))
     assert "2번" in errors(GOOD.replace("궁금하다", "운명원 궁금하다"))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "운명원 연애사주가 궁금하다",
+        "연애운은 운명원에서 보고 싶다",
+        "운명원에서 궁합 한번 보고 싶다",
+        "사주를 잘 본다는 운명원이 궁금하다",
+        "운명원 운세가 궁금하다",
+        "운명원에서 내 짝은 언제 만날지 궁금하다",
+        "인연이 궁금해서 운명원을 찾아보고 싶다",
+        "운명원" + "가" * 15 + "궁합",
+        "사주" + "가" * 15 + "운명원",
+    ],
+)
+def test_브랜드_앞뒤_같은_문장_15자_이내_맥락이면_통과(text):
+    v = validate_comment(text, **OPTS)
+    assert next(c for c in v["checks"] if c["key"] == "brand_context")["ok"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "운명원도 궁금해지네요",
+        "연애사주가 궁금하다. 운명원은 어떨까",
+        "운명원도 궁금하네! 인연도 궁금해",
+        "사주가 궁금하다\n운명원도 궁금하다",
+        "운명원" + "가" * 16 + "궁합",
+        "사주" + "가" * 16 + "운명원",
+    ],
+)
+def test_브랜드_맥락_없거나_다른_문장_멀리_있으면_차단(text):
+    v = validate_comment(text, **OPTS)
+    check = next(c for c in v["checks"] if c["key"] == "brand_context")
+    assert not check["ok"]
+    assert "같은 문장" in check["note"] and "15자 이내" in check["note"]
+    assert "관심을 표현" in check["note"] and check["note"] in v["errors"]
+
+
+def test_브랜드_이름만_있으면_맥락_오류로_안내():
+    text = GOOD.replace(
+        "운명원 연애사주가 그렇게 잘 본다던데 내 인연은 언제 오는지 궁금하다",
+        "운명원도 궁금해지네요",
+    )
+    assert "연애사주·사주·연애운" in errors(text)
+
+
+def test_맥락이_있어도_사주_이용_후기는_차단():
+    assert "이용해 본 것처럼" in errors(
+        GOOD.replace("내 인연은 언제 오는지 궁금하다", "사주 봤는데 맞더라")
+    )
 
 
 def test_링크와_해시태그_금지():

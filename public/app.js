@@ -330,7 +330,7 @@ async function select(video) {
     if (state.selected?.videoId !== video.videoId) return;
     clearInterval(state.timer);
     const hint = /시간 초과|한도 초과/.test(e.message)
-      ? "<p class=\"note\">잠시 뒤 다시 시도하거나, .env의 LLM_PROVIDER로 다른 AI를 고르세요.</p>"
+      ? '<p class="note">잠시 뒤 다시 시도하거나, .env의 LLM_PROVIDER로 다른 AI를 고르세요.</p>'
       : "";
     $("#detail").innerHTML = `${videoCard(video)}
       <div class="loading"><p class="note bad">${esc(e.message)}</p>${hint}<button class="btn" id="retry">${icon("reload")}다시 시도</button></div>`;
@@ -342,7 +342,7 @@ function renderDetail() {
   const d = state.draft;
   $("#detail").innerHTML = `${videoCard(state.selected)}
     <div class="group">
-      <div class="group-title">영상 요지</div>
+      <div class="group-title">영상 속 연애 고민</div>
       <div class="concern">${esc(d.concern)}</div>
       <p class="evidence">근거 · ${esc(d.sourceLabel)}, 인기 댓글 ${d.commentCount}개를 읽음</p>
     </div>

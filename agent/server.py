@@ -16,7 +16,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .config import ROOT, load_config, load_env
-from .generate import InsufficientVideoContent, draft_comment, source_text
+from .generate import (
+    InsufficientVideoContent,
+    UnrelatedVideo,
+    draft_comment,
+    source_text,
+)
 from .llm import backend_name
 from .rules import (
     check_load_scope,
@@ -271,7 +276,7 @@ async def draft(body: DraftIn):
         d = await asyncio.to_thread(
             draft_comment, ctx, **rules_kwargs(), previous=previous(body.videoId)
         )
-    except InsufficientVideoContent as e:
+    except (InsufficientVideoContent, UnrelatedVideo) as e:
         raise ApiError(422, str(e)) from e
     if d and d["comment"]:
         session_drafts.insert(0, {"videoId": body.videoId, "text": d["comment"]})

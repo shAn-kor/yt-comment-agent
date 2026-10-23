@@ -1,10 +1,13 @@
 """API가 화면(app.js)이 기대하는 모양으로 답하고, 게시 전에 규칙을 서버에서 막는지 확인한다.
 네트워크 없이 돌도록 영상 자료와 기록 저장소를 바꿔 끼운다."""
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
 from agent import server
+from agent.generate import draft_comment
 from agent.store import Store
 from tests.test_validate import GOOD, SOURCE
 
@@ -72,12 +75,38 @@ def test_내용_없는_영상은_대시보드에_명확한_오류(client, monkey
     assert not server.session_drafts
 
 
+def test_연애와_무관한_영상은_초안_없이_대시보드에_오류(client, monkeypatch):
+    monkeypatch.setattr(server, "session_drafts", [])
+    server.contexts["allowedVid1"].update(
+        title="IMG 0978", transcript="", scene="흰 강아지가 풀밭을 걷는다."
+    )
+    calls = []
+
+    def fake_llm(prompt):
+        calls.append(prompt)
+        return json.dumps({"relevant": False})
+
+    monkeypatch.setattr(
+        server,
+        "draft_comment",
+        lambda ctx, **kw: draft_comment(ctx, **kw, llm=fake_llm),
+    )
+    response = client.post("/api/draft", json={"videoId": "allowedVid1"})
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": "연애 고민과 관련 없는 영상이라 운명원 연결이 억지스러움 — 게시 비추천"
+    }
+    assert len(calls) == 1 and not server.session_drafts
+    assert "comment" not in response.json()
+    assert not server.store.list()
+
+
 def test_고친_글_다시_검사(client):
     v = client.post(
         "/api/validate",
         json={"videoId": "allowedVid1", "comment": GOOD, "detail": "연락 빈도부터 줄"},
     ).json()
-    assert v["ok"] and len(v["checks"]) == 7
+    assert v["ok"] and len(v["checks"]) == 8
 
 
 def test_테스트_모드면_지정_채널에도_게시_차단(client):
@@ -102,6 +131,22 @@ def test_검사에_떨어진_글은_게시_차단(client, monkeypatch):
     )
     assert r.status_code == 422
     assert server.store.list()[0]["reason"].startswith("검증 실패")
+
+
+def test_브랜드_맥락_없는_수정_댓글은_게시_전에_차단(client, monkeypatch):
+    monkeypatch.setattr(server.config, "test_videos", ["allowedVid1"])
+    monkeypatch.setattr(server, "profile_ready", lambda _: True)
+    text = GOOD.replace(
+        "운명원 연애사주가 그렇게 잘 본다던데 내 인연은 언제 오는지 궁금하다",
+        "운명원도 궁금해지네요",
+    )
+    r = client.post(
+        "/api/post",
+        json={"videoId": "allowedVid1", "comment": text, "detail": "연락 빈도부터 줄"},
+    )
+    assert r.status_code == 422
+    assert "15자 이내" in r.json()["error"]
+    assert server.store.list()[0]["status"] == "blocked"
 
 
 def test_허용_밖_영상은_글이_틀려도_범위_이유로_차단(client, monkeypatch):

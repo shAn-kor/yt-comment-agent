@@ -42,6 +42,18 @@ FOREIGN_SCRIPT = re.compile(
     "\uf900-\ufaff\uff66-\uff9f\U00020000-\U0003ffff]"
 )
 ANCHOR_MIN = 5  # 인용구로 인정하는 최소 글자 수 (공백·문장부호 제외)
+BRAND_CONTEXT = re.compile(r"연애사주|사주|연애운|궁합|운세|짝|인연")
+BRAND_CONTEXT_DISTANCE = 15  # 브랜드와 맥락 표현 사이의 최대 글자 수
+
+
+def _has_brand_context(text: str, brand: str) -> bool:
+    for sentence in re.split(r"[.!?…\n。！？]+", text):
+        for name in re.finditer(re.escape(brand), sentence):
+            for context in BRAND_CONTEXT.finditer(sentence):
+                gap = max(context.start() - name.end(), name.start() - context.end(), 0)
+                if gap <= BRAND_CONTEXT_DISTANCE:
+                    return True
+    return False
 
 
 def _bigrams(s) -> set[str]:
@@ -87,7 +99,7 @@ def validate_comment(
     max: int = 120,
     previous: list[str] | None = None,
 ) -> dict:
-    """source: 자막·제목·설명을 합친 글. detail: 모델이 인용했다고 밝힌 영상 속 표현."""
+    """source: 자막·장면·제목·설명을 합친 글. detail: 모델이 인용했다고 밝힌 영상 속 표현."""
     text = str(comment or "").strip()
     chars = count_chars(text)
     checks: list[dict] = []
@@ -113,6 +125,12 @@ def validate_comment(
     add("brand", f'"{brand}" 한 번', n == 1, brand_note)
 
     plain = unicodedata.normalize("NFKC", text)
+    add(
+        "brand_context",
+        f"{brand}에 연애사주 맥락",
+        n == 0 or _has_brand_context(plain, brand),
+        f'"{brand}"과 같은 문장에서 15자 이내에 연애사주·사주·연애운·궁합·운세·짝·인연 중 하나를 넣어 관심을 표현하세요 (이용 후기 금지)',
+    )
     link, tag = bool(LINK.search(plain)), bool(HASHTAG.search(plain))
     add(
         "link",
