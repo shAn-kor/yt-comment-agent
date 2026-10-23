@@ -36,6 +36,13 @@ def baseline_builder():
     return old_build_prompt
 
 
+def _has_video_material(ctx: dict) -> bool:
+    return isinstance(ctx.get("description"), str) and any(
+        isinstance(ctx.get(key), str) and ctx[key].strip()
+        for key in ("transcript", "scene")
+    )
+
+
 def select_contexts(config, count: int, cache: Path | None = None) -> list[dict]:
     allowed = {channel.id for channel in config.channels}
     if cache is not None:
@@ -63,6 +70,10 @@ def select_contexts(config, count: int, cache: Path | None = None) -> list[dict]
         if ctx.get("channelId") not in allowed or ctx.get("videoId") in seen:
             continue
         seen.add(ctx["videoId"])
+        if cache is not None and not _has_video_material(ctx):
+            ctx = get_video_context(ctx["videoId"])
+        if ctx.get("channelId") not in allowed or not _has_video_material(ctx):
+            continue
         selected.append(dict(ctx))
         if len(selected) == count:
             break
@@ -107,8 +118,19 @@ def save_sheet(output: Path, record: dict) -> None:
         "# 댓글 비교",
         "",
         "영상 내용에 맞고 광고 말투가 덜한 쪽을 고른다. 검증 결과와 버전 정보는 key.json에 따로 저장한다.",
+        "각 초안은 단발 생성(single-shot)이며, 검사 결과를 붙여 다시 쓰는 재작성 루프는 사용하지 않았다. 영상 자료는 실제 자막 또는 장면 설명과 영상 설명을 포함한다.",
         "",
     ]
+    recovered = sum(
+        len(d.get("error_history", []))
+        for row in record["rows"]
+        for d in row["drafts"].values()
+    )
+    if recovered:
+        lines += [
+            f"응답을 받지 못한 오류 {recovered}건은 추가 요청했으며, 이력은 key.json에 보존했다.",
+            "",
+        ]
     for index, row in enumerate(record["rows"], 1):
         ref = row["reference"]
         lines += [

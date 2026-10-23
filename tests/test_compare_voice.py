@@ -90,6 +90,7 @@ def test_비교는_각_버전_한번씩만_생성하고_버전은_key에만_저�
     sheet = (tmp_path / "sheet.md").read_text()
     assert "old" not in sheet and "new" not in sheet
     assert "높은 반응" in sheet and "### A" in sheet and "### B" in sheet
+    assert "single-shot" in sheet and "재작성 루프는 사용하지 않았다" in sheet
     assert json.loads((tmp_path / "key.json").read_text())["seed"] == 123
     with pytest.raises(ValueError, match="이미 있음"):
         comparison.compare(
@@ -183,6 +184,49 @@ def test_캐시도_설정_채널만_중복_없이_고름(tmp_path):
     )
     selected = comparison.select_contexts(config, 2, cache)
     assert [ctx["videoId"] for ctx in selected] == ["allowedVid1", "allowedVid3"]
+
+
+@pytest.mark.parametrize("missing", ["transcript", "description"])
+def test_불완전한_캐시는_앱의_영상자료_경로로_보완(missing, tmp_path, monkeypatch):
+    cached = context()
+    if missing == "transcript":
+        cached.update(transcript=" ", scene="")
+    else:
+        cached.pop("description")
+    file = tmp_path / "contexts.json"
+    file.write_text(json.dumps([cached]))
+    fetched = []
+
+    def fetch(video_id):
+        fetched.append(video_id)
+        return {**context(video_id), "description": "실제 영상 설명"}
+
+    monkeypatch.setattr(comparison, "get_video_context", fetch)
+    config = SimpleNamespace(channels=[SimpleNamespace(id="channel-a")])
+    [selected] = comparison.select_contexts(config, 1, file)
+    assert fetched == ["allowedVid1"]
+    assert selected["transcript"] and selected["description"] == "실제 영상 설명"
+
+
+def test_자막_대신_장면_설명이_있는_캐시는_허용(tmp_path, monkeypatch):
+    cached = {**context(), "transcript": "", "scene": "두 사람이 손을 잡고 걷는다."}
+    file = tmp_path / "contexts.json"
+    file.write_text(json.dumps([cached]))
+    monkeypatch.setattr(
+        comparison, "get_video_context", lambda _: pytest.fail("불필요한 재요청")
+    )
+    config = SimpleNamespace(channels=[SimpleNamespace(id="channel-a")])
+    assert comparison.select_contexts(config, 1, file)[0]["scene"] == cached["scene"]
+
+
+def test_다시_받아도_자막과_장면이_없으면_비교에_넣지_않음(tmp_path, monkeypatch):
+    cached = {**context(), "transcript": "", "scene": ""}
+    file = tmp_path / "contexts.json"
+    file.write_text(json.dumps([cached]))
+    monkeypatch.setattr(comparison, "get_video_context", lambda _: cached)
+    config = SimpleNamespace(channels=[SimpleNamespace(id="channel-a")])
+    with pytest.raises(ValueError, match="0개뿐"):
+        comparison.select_contexts(config, 1, file)
 
 
 def test_새_영상_컨텍스트는_요청한_수만_받음(monkeypatch):
