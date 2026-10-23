@@ -45,6 +45,31 @@ ANCHOR_MIN = 5  # 인용구로 인정하는 최소 글자 수 (공백·문장부
 # 짝은 낱말 첫머리일 때만 인정한다 (반짝반짝·깜짝·짝짝 속 짝은 연애 맥락이 아니다)
 BRAND_CONTEXT = re.compile(r"연애사주|사주|연애운|궁합|운세|(?<![가-힣])짝(?!짝)|인연")
 BRAND_CONTEXT_DISTANCE = 15  # 브랜드와 맥락 표현 사이의 최대 글자 수
+STOCK_PHRASES = ("인연은 타이밍", "잘 본다던데", "유용하네요", "공감 100", "뜨끔했")
+QUOTE_PAIRS = (
+    ('"', '"'),
+    ("'", "'"),
+    ("“", "”"),
+    ("‘", "’"),
+    ("「", "」"),
+    ("『", "』"),
+    ("«", "»"),
+)
+
+
+def _quoted_detail(text: str, detail: str, anchor: str) -> bool:
+    targets = [
+        norm(value) for value in (detail, anchor) if len(norm(value)) >= ANCHOR_MIN
+    ]
+    return any(
+        target in norm(match[1])
+        or len(longest_common(norm(match[1]), target)) >= ANCHOR_MIN
+        for opening, closing in QUOTE_PAIRS
+        for match in re.finditer(
+            re.escape(opening) + r"([^\n]*?)" + re.escape(closing), text
+        )
+        for target in targets
+    )
 
 
 def _has_brand_context(text: str, brand: str) -> bool:
@@ -163,6 +188,16 @@ def validate_comment(
         f"한국어가 아닌 글자가 섞임 ({foreign[:10]})" if foreign else "",
     )
 
+    stock = [phrase for phrase in STOCK_PHRASES if norm(phrase) in norm(plain)]
+    add(
+        "stock",
+        "상투적인 홍보 문구 없음",
+        not stock,
+        f'상투적인 표현 "{", ".join(stock)}"을 빼고 영상의 구체적인 주장에 대한 입장을 직접 쓰세요'
+        if stock
+        else "",
+    )
+
     # 영상 속 장면·말: 모델이 밝힌 인용구(5자 이상)가 원문과 댓글 모두에 있거나, 원문과 6자 이상 겹쳐야 한다.
     # detail은 화면이 보내는 값이라 "오늘은" 같은 흔한 짧은 말로는 통과하지 못하게 한다
     src = norm(source)
@@ -183,6 +218,16 @@ def validate_comment(
         else "영상 속 장면·말이 댓글에 없음"
     )
     add("anchor", "영상 속 장면·말 포함", src and anchor, anchor_note)
+
+    quoted = _quoted_detail(plain, detail, anchor)
+    add(
+        "quote",
+        "영상 속 표현을 따옴표 없이 씀",
+        not quoted,
+        "영상 속 표현을 감싼 따옴표를 빼고 문장에 자연스럽게 섞으세요"
+        if quoted
+        else "",
+    )
 
     dup = next((p for p in previous or [] if p and similarity(text, p) >= 0.5), None)
     add("unique", "이전 댓글과 다름", not dup, "이전 댓글과 너무 비슷함" if dup else "")

@@ -104,12 +104,35 @@ def test_연애와_무관한_영상은_초안_없이_대시보드에_오류(clie
     assert not server.store.list()
 
 
+def test_초안_API는_선택한_입장도_반환(client, monkeypatch):
+    monkeypatch.setattr(server, "session_drafts", [])
+    monkeypatch.setattr(
+        server,
+        "draft_comment",
+        lambda ctx, **kw: draft_comment(
+            ctx,
+            **kw,
+            llm=lambda _: json.dumps(
+                {
+                    "relevant": True,
+                    "stance": "한줄요약",
+                    "concern": "연락 고민",
+                    "detail": "연락 빈도부터 줄",
+                    "comment": GOOD,
+                }
+            ),
+        ),
+    )
+    r = client.post("/api/draft", json={"videoId": "allowedVid1"})
+    assert r.status_code == 200 and r.json()["stance"] == "한줄요약"
+
+
 def test_고친_글_다시_검사(client):
     v = client.post(
         "/api/validate",
         json={"videoId": "allowedVid1", "comment": GOOD, "detail": "연락 빈도부터 줄"},
     ).json()
-    assert v["ok"] and len(v["checks"]) == 8
+    assert v["ok"] and len(v["checks"]) == 10
 
 
 def test_테스트_모드면_지정_채널에도_게시_차단(client):
@@ -140,7 +163,7 @@ def test_브랜드_맥락_없는_수정_댓글은_게시_전에_차단(client, m
     monkeypatch.setattr(server.config, "test_videos", ["allowedVid1"])
     monkeypatch.setattr(server, "profile_ready", lambda _: True)
     text = GOOD.replace(
-        "운명원 연애사주가 그렇게 잘 본다던데 내 인연은 언제 오는지 궁금하다",
+        "운명원에서 내 인연은 언제 오는지 궁금하다",
         "운명원도 궁금해지네요",
     )
     r = client.post(

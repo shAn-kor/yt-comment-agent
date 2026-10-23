@@ -132,6 +132,29 @@ def test_자막이_없거나_짧으면_장면을_읽음(monkeypatch, transcript)
     assert ctx["transcript"] == transcript
 
 
+def test_인기_댓글은_답글_제외하고_좋아요_수를_보존(monkeypatch):
+    long_text = "긴 댓글 " * 60 + "https://example.com"
+    monkeypatch.setattr(
+        youtube,
+        "_extract",
+        lambda *a, **k: {
+            "id": "295yVVpRbmI",
+            "subtitles": {"ko": [{"ext": "json3", "url": "caption"}]},
+            "comments": [
+                {"text": "낮음", "like_count": 2},
+                {"text": "답글", "like_count": 999, "parent": "thread"},
+                {"text": long_text, "like_count": 10, "parent": "root"},
+            ],
+        },
+    )
+    monkeypatch.setattr(youtube, "_fetch_transcript", lambda _: "자막" * 50)
+    ctx = youtube.get_video_context("295yVVpRbmI")
+    assert ctx["topComments"] == [
+        {"text": long_text, "likes": 10},
+        {"text": "낮음", "likes": 2},
+    ]
+
+
 def test_충분한_자막은_영상_다운로드_생략(monkeypatch):
     monkeypatch.setattr(
         youtube,

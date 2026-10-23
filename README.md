@@ -110,6 +110,16 @@ tests/              pytest
 
 `agent/browsers/`에 `CommentPoster`의 `ready()`와 비동기 `post()`를 구현한 어댑터를 만들고, `registry.py`의 `ADAPTERS`에 이름과 클래스 경로를 등록한다. `server.py` 수정은 필요 없다. 설정의 `browser`에는 등록된 이름만 쓸 수 있다 (기본: `chrome`, 지원: `chrome`·`ego`). 준비 확인과 게시 후 실패 처리 계약은 [구현 설명](docs/IMPLEMENTATION.md#브라우저-포트와-새-브라우저-추가)에 있다.
 
+## 댓글 말투 비교
+
+초안은 요약·반박·질문 같은 입장을 먼저 고르고, 영상의 구체적인 내용을 짧게 풀어 쓴다. 목표는 40~80자다 (설정의 40~120자 제한은 유지). 상투적인 홍보 문구와 근거를 감싼 따옴표는 검사기가 막는다.
+
+```bash
+uv run python scripts/compare_voice.py --count 8 --delay 65
+```
+
+설정된 AI로 이전·새 프롬프트를 한 번씩 생성하고 `~/ai-workspace/scratch/comment-research/blind/`에 블라인드 비교표와 버전 키를 저장한다. `--contexts`와 `--comments`로 저장된 영상·댓글 자료를 재사용할 수 있다. 게시 기능은 없다. 검사 결과는 품질 선호도 점수를 대신하지 않는다.
+
 ## 알려진 한계
 
 - 유튜브 화면 구조가 바뀌면 `agent/poster.py`의 선택자를 고쳐야 한다.

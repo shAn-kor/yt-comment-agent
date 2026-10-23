@@ -376,7 +376,11 @@ def get_video_context(video_id: str, comments: bool = True) -> dict:
             filter(None, [track[0] if transcript else "", scene_label])
         )
         or "제목·설명",
-        "topComments": [str(c.get("text") or "")[:200] for c in roots[:20]],
+        # 말투 참고 필터가 뒤쪽의 홍보 링크도 볼 수 있도록 자르지 않는다.
+        "topComments": [
+            {"text": str(c.get("text") or ""), "likes": c.get("like_count") or 0}
+            for c in roots[:20]
+        ],
     }
 
 

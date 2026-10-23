@@ -25,7 +25,13 @@ RULES = dict(brand="운명원", min=40, max=120)
 
 def test_AI_응답_JSON_파싱():
     j = parse_json('설명 {"concern":"고민","detail":"말","comment":"댓글"} 끝')
-    assert j == {"relevant": True, "concern": "고민", "detail": "말", "comment": "댓글"}
+    assert j == {
+        "relevant": True,
+        "stance": "",
+        "concern": "고민",
+        "detail": "말",
+        "comment": "댓글",
+    }
 
 
 @pytest.mark.parametrize("relevant", [True, False])
@@ -101,7 +107,7 @@ def test_검증_실패_시_이유를_붙여_다시_생성():
 def test_브랜드_맥락_없으면_구체적인_안내로_재생성():
     prompts = []
     without_context = GOOD.replace(
-        "운명원 연애사주가 그렇게 잘 본다던데 내 인연은 언제 오는지 궁금하다",
+        "운명원에서 내 인연은 언제 오는지 궁금하다",
         "운명원도 궁금해지네요",
     )
 
@@ -171,13 +177,51 @@ def test_프롬프트는_연애_관련성_확인_후_고민을_먼저_정리():
     assert (
         prompt.index("0) relevant")
         < prompt.index("1) concern")
-        < prompt.index("2) comment")
+        < prompt.index("2) stance")
+        < prompt.index("3) comment")
     )
     assert "연애·데이트·연인 관계" in prompt and "false" in prompt
-    assert "운명원 연애사주" in prompt and ctx["scene"] in prompt
+    assert "운명원 가서 궁합이나 볼까" in prompt and ctx["scene"] in prompt
+    assert "40~80자" in prompt and "역설·자기고백" in prompt
+    assert "따옴표로 감싸지 마라" in prompt and "기본적으로 생략" in prompt
     assert '"relevant": true' in prompt
     assert "제목과 설명만 사용" not in prompt
     assert "자료에 없는 대사·장면·관계·연애 고민을 만들지 마라" in prompt
+
+
+def test_인기_댓글은_좋아요순_말투_참고이며_홍보와_링크는_제외():
+    ctx = {
+        **CTX,
+        "topComments": [
+            {"text": "두 번째 반응", "likes": 12},
+            {"text": "제 채널 놀러 오세요", "likes": 999},
+            {"text": "최고 반응", "likes": 35},
+            {"text": "무료 상담 문의", "likes": 999},
+            {"text": "내용 " * 90 + "https://example.com", "likes": 999},
+            {"text": "전각 ｈｔｔｐｓ://example.com", "likes": 999},
+            {"text": "운명원 궁합 보고 싶어요", "likes": 999},
+            "예전 형식 댓글",
+        ],
+    }
+    prompt = build_prompt(ctx, **RULES)
+    assert prompt.index("좋아요 35개: 최고 반응") < prompt.index(
+        "좋아요 12개: 두 번째 반응"
+    )
+    assert "좋아요 0개: 예전 형식 댓글" in prompt
+    assert "말투 참고만" in prompt
+    for removed in (
+        "제 채널 놀러",
+        "무료 상담 문의",
+        "example.com",
+        "운명원 궁합 보고 싶어요",
+    ):
+        assert removed not in prompt
+
+
+def test_선택한_입장은_JSON에_보존():
+    parsed = parse_json('{"stance":"반박·비틀기","comment":"내용"}')
+    assert parsed["stance"] == "반박·비틀기"
+    assert parse_json('{"stance":"자기고백"}')["stance"] == "자기고백"
 
 
 def test_장면_설명도_detail_검사_근거():

@@ -290,6 +290,7 @@ async def draft(body: DraftIn):
         "sourceLabel": ctx["sourceLabel"],
         "commentCount": len(ctx["topComments"]),
         "concern": d["concern"],
+        "stance": d.get("stance", ""),
         "detail": d["detail"],
         "comment": d["comment"],
         "attempts": d["attempts"],
