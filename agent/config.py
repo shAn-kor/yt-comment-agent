@@ -5,6 +5,8 @@ from pathlib import Path
 
 import yaml
 
+from .browsers import validate_browser
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -18,14 +20,16 @@ def load_env(file: Path = ROOT / ".env") -> None:
             os.environ[m[1]] = m[2].strip("\"'")
 
 
-LOGIN_MARK = ".agent-login"  # scripts/login.py가 프로필 폴더에 남기는 표시 (로그인 창을 연 시각)
+LOGIN_MARK = (
+    ".agent-login"  # scripts/login.py가 프로필 폴더에 남기는 표시 (로그인 창을 연 시각)
+)
 
 
 @dataclass
 class Profile:
     name: str
     dir: Path
-    browser: str = "chrome"  # chrome: 이 폴더의 크롬 프로필 / ego: ego 브라우저에 로그인된 계정
+    browser: str = "chrome"  # browsers.registry에 등록된 어댑터 이름
 
     def login_at(self) -> int | None:
         """login.py로 로그인 창을 연 시각(밀리초). 연 적이 없으면 None"""
@@ -84,7 +88,7 @@ def load_config(file: Path = ROOT / "config.yaml") -> Config:
         return Profile(
             p["name"],
             (ROOT / (p.get("dir") or f"profiles/{p['name']}")).resolve(),
-            "ego" if p.get("browser") == "ego" else "chrome",
+            validate_browser(p.get("browser", "chrome")),
         )
 
     return Config(

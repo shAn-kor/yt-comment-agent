@@ -9,16 +9,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urljoin
 
-from playwright.async_api import async_playwright
-
-
-class PostError(Exception):
-    def __init__(
-        self, message: str, screenshot: str | None = None, submitted: bool = False
-    ):
-        super().__init__(message)
-        self.screenshot = screenshot
-        self.submitted = submitted  # 게시 버튼을 누른 뒤의 실패: 댓글이 올라갔을 수 있다
+from .browsers.port import PostError  # 기존 import 경로 호환
 
 
 async def post_comment(
@@ -44,6 +35,8 @@ async def post_comment(
         raise PostError(
             "로그인 안 됨 — uv run python scripts/login.py <프로필 이름> 으로 먼저 로그인하세요"
         )
+    from playwright.async_api import async_playwright  # 실제 Chrome 게시 때만 필요
+
     submitted = False
     on_status("프로필 여는 중")
     async with async_playwright() as pw:

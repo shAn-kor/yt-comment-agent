@@ -14,7 +14,7 @@ FastAPI 서버 agent/server.py  ──  127.0.0.1:4310, 내 컴퓨터에서만 �
    ├─ 댓글 검사     agent/validate.py
    ├─ 운영 규칙     agent/rules.py
    ├─ 기록 저장     agent/store.py     SQLite (data/agent.db)
-   └─ 게시          agent/poster.py    Playwright + 내 크롬 프로필
+   └─ 게시          agent/browsers/    CommentPoster 포트 → Chrome·ego 어댑터
 ```
 
 | 부분        | 쓴 것                                      |
@@ -232,7 +232,15 @@ SQLite 파일(`data/agent.db`)의 `logs` 표 하나에 모든 시도를 남긴�
 - 규칙 검사도 이 표를 쓴다. "이 영상에 성공 기록이 있나", "오늘 성공이 몇 개인가"를 바로 조회한다. 서버를 껐다 켜도 규칙이 유지된다.
 - FastAPI는 요청을 여러 스레드에서 처리하므로 연결 하나를 잠금(`threading.Lock`)과 함께 쓴다.
 
-## 8. 게시 — `agent/poster.py`, `agent/poster_ego.py`, `scripts/login.py`
+## 8. 게시 — `agent/browsers/`, `agent/poster.py`, `agent/poster_ego.py`
+
+### 브라우저 포트와 새 브라우저 추가
+
+서버는 `CommentPoster` 포트의 `ready()`와 비동기 `post()`만 호출한다. `ready()`에는 로그인 실패 조회 함수와 서버 시작 시각을 넘긴다. Chrome 어댑터는 로그인 표시 이후의 실패를, ego 어댑터는 서버 시작 이후의 실패를 확인한다. 두 어댑터는 기존 게시 드라이버를 호출하므로 입력·상태·캡처 순서는 바뀌지 않는다. Playwright는 실제 Chrome 게시 때만 불러온다.
+
+새 브라우저는 `agent/browsers/`에 프로필을 받는 어댑터 클래스를 만들고, `registry.py`의 `ADAPTERS`에 `"이름": "agent.browsers.모듈:클래스"`를 등록한다. 서버 수정은 필요 없다. 설정의 `browser`가 등록되지 않은 이름이면 지원 목록과 함께 오류를 낸다. 테스트는 `app.state.poster_factory`에 가짜 팩터리를 넣는다.
+
+공통 `PostError`는 `browsers/port.py`에 있다. 게시 버튼 뒤 실패는 반드시 `submitted=True`로 알려야 중복 게시를 막을 수 있다. 기존 `agent.poster.PostError` 경로도 같은 클래스를 가리킨다.
 
 ### 로그인 (`uv run python scripts/login.py 유튜브1`)
 
@@ -336,6 +344,7 @@ FastAPI 앱이다. 요청 본문은 Pydantic 모델(`ResolveIn`, `DraftIn`, `Val
 - `test_youtube.py`: 링크에서 영상 ID 꺼내기, RSS 읽기(정확한 시각, 라이브 제외), 실패하면 다시 요청, 계속 실패하면 '동영상' 탭으로 넘어가기, 둘 다 실패하면 두 이유를 함께 알리기, yt-dlp 오류를 한국어 문구로 바꾸기
 - `test_server.py`: 설정과 화면 파일, 허용 밖 링크 차단과 기록, 설정의 채널 이름 사용, 고친 글 재검사, 테스트 모드의 게시 차단과 게시 전 확인 항목, 검사에 떨어진 글 차단, 허용 밖 영상은 글이 틀려도 범위 이유로 차단, 경로 탈출 차단
 - `test_attacks.py`: 레드팀 검토(2026-10-20)에서 찾은 우회 방법. 모양을 바꾼 링크·해시태그, 후기 우회, 흔한 짧은 인용구, 영상 ID 변형, 다른 주소의 요청, 확인 안 된 게시, 로그인 안 된 프로필, 동시 게시. 고치기 전 코드에서는 19개 중 18개가 실패한다 (나머지 1개는 평범한 문장을 링크로 오인하지 않는지 보는 테스트)
+- `test_browsers.py`: 등록된 이름·잘못된 설정, 새 어댑터 등록, Chrome·ego 준비 여부, 기존 드라이버로 인자·결과·오류 전달, Playwright 지연 로딩 (실제 브라우저는 열지 않음)
 - `test_poster_ego.py`: `browser: ego` 설정 읽기, ego 프로필 준비 여부, 따옴표·줄바꿈이 든 글로 스크립트 만들기, 결과 줄 해석, 상태 파일을 진행 중에 읽는지, 성공·게시 후 실패·결과 없음 처리 (실제 브라우저는 열지 않음)
 
 ## 아직 확인하지 못한 것

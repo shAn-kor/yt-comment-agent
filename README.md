@@ -97,13 +97,18 @@ agent/llm.py        AI 연결 (Claude · Gemini · Groq · OpenRouter)
 agent/validate.py   댓글 검증기
 agent/rules.py      운영 규칙
 agent/store.py      SQLite 기록
-agent/poster.py     Playwright launch_persistent_context로 게시
+agent/browsers/     CommentPoster 포트, 브라우저 어댑터와 팩터리
+agent/poster.py     Chrome 게시 드라이버 (Playwright는 게시할 때만 로딩)
 agent/poster_ego.py ego 브라우저(ego-browser nodejs)로 게시
 agent/config.py     config.yaml, .env 읽기
 scripts/login.py    프로필 첫 로그인 (일반 Chrome)
 public/             대시보드 화면
 tests/              pytest
 ```
+
+### 브라우저 추가
+
+`agent/browsers/`에 `CommentPoster`의 `ready()`와 비동기 `post()`를 구현한 어댑터를 만들고, `registry.py`의 `ADAPTERS`에 이름과 클래스 경로를 등록한다. `server.py` 수정은 필요 없다. 설정의 `browser`에는 등록된 이름만 쓸 수 있다 (기본: `chrome`, 지원: `chrome`·`ego`). 준비 확인과 게시 후 실패 처리 계약은 [구현 설명](docs/IMPLEMENTATION.md#브라우저-포트와-새-브라우저-추가)에 있다.
 
 ## 알려진 한계
 

@@ -15,7 +15,9 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .config import ROOT, load_config, load_env
+from .browsers import create_poster
+from .browsers.port import CommentPoster, PostError
+from .config import ROOT, Profile, load_config, load_env
 from .generate import (
     InsufficientVideoContent,
     UnrelatedVideo,
@@ -58,6 +60,7 @@ tasks: set[asyncio.Task] = set()
 busy = False
 
 app = FastAPI(title="댓글 에이전트")
+app.state.poster_factory = create_poster  # 테스트는 가짜 팩터리를 주입할 수 있다
 
 
 class ApiError(Exception):
@@ -101,14 +104,16 @@ async def local_only(request: Request, call_next):
     return await call_next(request)
 
 
+def poster_for(profile: Profile) -> CommentPoster:
+    return app.state.poster_factory(profile)
+
+
 def profile_ready(name: str) -> bool:
-    """login.py로 로그인 창을 연 적이 있고, 그 뒤에 "로그인 안 됨"으로 실패하지 않은 프로필"""
-    p = next((p for p in config.profiles if p.name == name), None)
-    if p and p.browser == "ego":
-        # ego는 사용자가 쓰는 브라우저라 로그인 표시가 없다. 서버를 켠 뒤 "로그인 안 됨"으로 실패하지 않았으면 준비됨
-        return not store.login_failed_since(name, STARTED_MS)
-    at = p.login_at() if p else None
-    return at is not None and not store.login_failed_since(name, at)
+    """브라우저 어댑터가 프로필의 로그인 표시·실패 기록을 해석한다."""
+    profile = next((p for p in config.profiles if p.name == name), None)
+    return profile is not None and poster_for(profile).ready(
+        login_failed_since=store.login_failed_since, started_ms=STARTED_MS
+    )
 
 
 async def context(video_id: str) -> dict:
@@ -353,11 +358,7 @@ async def _start_post(body: PostIn) -> dict:
         block(422, ", ".join(v["errors"]), f"검증 실패: {', '.join(v['errors'])}")
 
     profile = next(p for p in config.profiles if p.name == name)
-    if profile.browser == "ego":
-        from .poster_ego import post_comment
-    else:
-        from .poster import post_comment  # Playwright는 게시할 때만 불러온다
-    from .poster import PostError
+    poster = poster_for(profile)
 
     job_id = str(int(time.time() * 1000))
     job = jobs[job_id] = {
@@ -366,13 +367,11 @@ async def _start_post(body: PostIn) -> dict:
         "status": "대기",
         "done": False,
     }
-    profile_dir = profile.dir
 
     async def run():
         global busy
         try:
-            out = await post_comment(
-                profile_dir=profile_dir,
+            out = await poster.post(
                 video_id=body.videoId,
                 text=body.comment,
                 shot_dir=SHOTS,

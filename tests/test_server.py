@@ -2,11 +2,14 @@
 네트워크 없이 돌도록 영상 자료와 기록 저장소를 바꿔 끼운다."""
 
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
 
 from agent import server
+from agent.browsers.port import PostError
+from agent.config import Profile
 from agent.generate import draft_comment
 from agent.store import Store
 from tests.test_validate import GOOD, SOURCE
@@ -156,6 +159,100 @@ def test_허용_밖_영상은_글이_틀려도_범위_이유로_차단(client, m
     )
     assert r.status_code == 403 and r.json()["error"] == "허용 범위 밖 채널"
     assert server.store.list()[0]["reason"] == "허용 범위 밖 채널"
+
+
+@pytest.mark.parametrize("ready", [False, True])
+def test_profile_ready는_주입한_어댑터에_위임(ready, monkeypatch, tmp_path):
+    profile = Profile("가짜", tmp_path / "unused", "test-adapter")
+    monkeypatch.setattr(server.config, "profiles", [profile])
+    calls = []
+
+    class FakePoster:
+        def ready(self, **kw):
+            calls.append(kw)
+            return ready
+
+    def factory(p):
+        assert p is profile
+        return FakePoster()
+
+    monkeypatch.setattr(server.app.state, "poster_factory", factory)
+    assert server.profile_ready("가짜") is ready
+    assert calls == [
+        {
+            "login_failed_since": server.store.login_failed_since,
+            "started_ms": server.STARTED_MS,
+        }
+    ]
+    assert not server.profile_ready("없는 프로필")
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("submitted", [None, False, True])
+def test_서버는_팩터리에_주입한_가짜_게시자를_사용(
+    client, monkeypatch, tmp_path, submitted
+):
+    profile = Profile("가짜", tmp_path / "unused", "test-adapter")
+    monkeypatch.setattr(server.config, "profiles", [profile])
+    monkeypatch.setattr(server.config, "test_videos", ["allowedVid1"])
+    monkeypatch.setattr(server, "busy", False)
+    monkeypatch.setattr(server, "jobs", {})
+    monkeypatch.setattr(server, "SHOTS", tmp_path / "shots")
+    calls = []
+
+    class FakePoster:
+        def ready(self, **kw):
+            return True
+
+        async def post(self, **kw):
+            calls.append(kw)
+            kw["on_status"]("입력 중")
+            assert next(iter(server.jobs.values()))["status"] == "입력 중"
+            if submitted is not None:
+                raise PostError("테스트 실패", "fake.png", submitted=submitted)
+            return {
+                "commentUrl": "https://www.youtube.com/watch?v=allowedVid1&lc=fake",
+                "screenshot": "fake.png",
+            }
+
+    poster = FakePoster()
+
+    def factory(p):
+        assert p is profile
+        return poster
+
+    monkeypatch.setattr(server.app.state, "poster_factory", factory)
+    with client:
+        response = client.post(
+            "/api/post",
+            json={
+                "videoId": "allowedVid1",
+                "comment": GOOD,
+                "detail": "연락 빈도부터 줄",
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["profile"] == "가짜"
+        for _ in range(50):
+            job = client.get("/api/job", params={"id": response.json()["jobId"]}).json()
+            if job["done"]:
+                break
+            time.sleep(0.01)
+    assert job["done"] and not server.busy
+    assert len(calls) == 1
+    assert {k: v for k, v in calls[0].items() if k != "on_status"} == {
+        "video_id": "allowedVid1",
+        "text": GOOD,
+        "shot_dir": tmp_path / "shots",
+    }
+    row = server.store.list()[0]
+    assert row["screenshot"] == "fake.png"
+    if submitted is None:
+        assert job["ok"] and job["status"] == "게시 완료"
+        assert row["status"] == "success" and row["comment_url"].endswith("lc=fake")
+    else:
+        assert not job["ok"] and job["unverified"] is submitted
+        assert row["status"] == ("unverified" if submitted else "failed")
 
 
 def test_화면_밖_경로_차단(client):

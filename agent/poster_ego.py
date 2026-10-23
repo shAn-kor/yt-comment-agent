@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .poster import PostError
+from .browsers.port import PostError
 
 EGO = "ego-browser"
 TIMEOUT = 180  # 초. 입력 120자 기준 약 20초 + 페이지 로드·확인 여유

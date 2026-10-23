@@ -9,8 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent import server
+from agent.browsers.port import PostError
 from agent.config import LOGIN_MARK, Profile
-from agent.poster import PostError
 from agent.rules import check_post, pick_profile
 from agent.store import Store
 from agent.validate import validate_comment
@@ -146,11 +146,14 @@ def test_확인_안_된_게시도_영상당_1개와_상한에_셈(tmp_path):
 
 
 def test_게시_버튼_뒤_실패는_확인_안_됨으로_기록(client, monkeypatch):
-    async def fake_post(**_):
-        raise PostError("게시 후 내 댓글이 보이지 않음", None, submitted=True)
+    class FakePoster:
+        def ready(self, **_):
+            return True
 
-    monkeypatch.setattr("agent.poster.post_comment", fake_post)
-    monkeypatch.setattr(server, "profile_ready", lambda _: True)
+        async def post(self, **_):
+            raise PostError("게시 후 내 댓글이 보이지 않음", None, submitted=True)
+
+    monkeypatch.setattr(server.app.state, "poster_factory", lambda _: FakePoster())
     job_id = client.post(
         "/api/post",
         json={"videoId": TEST_ID, "comment": GOOD, "detail": "연락 빈도부터 줄"},

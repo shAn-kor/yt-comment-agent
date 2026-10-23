@@ -7,19 +7,18 @@ import time
 import pytest
 
 from agent import poster_ego, server
+from agent.browsers.port import PostError
 from agent.config import Profile, load_config
-from agent.poster import PostError
 from agent.store import Store
 
 
 def test_설정에서_browser_ego를_읽음(tmp_path):
     f = tmp_path / "c.yaml"
     f.write_text(
-        "profiles:\n  - { name: 이고, browser: ego }\n  - { name: 크롬, dir: ./p }\n"
-        "  - { name: 이상한값, browser: firefox }\n",
+        "profiles:\n  - { name: 이고, browser: ego }\n  - { name: 크롬, dir: ./p }\n",
         encoding="utf-8",
     )
-    assert [p.browser for p in load_config(f).profiles] == ["ego", "chrome", "chrome"]
+    assert [p.browser for p in load_config(f).profiles] == ["ego", "chrome"]
 
 
 def test_ego_프로필은_로그인_표시_없이_준비됨_로그인_실패하면_해제(
