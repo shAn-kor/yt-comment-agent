@@ -42,7 +42,8 @@ FOREIGN_SCRIPT = re.compile(
     "\uf900-\ufaff\uff66-\uff9f\U00020000-\U0003ffff]"
 )
 ANCHOR_MIN = 5  # 인용구로 인정하는 최소 글자 수 (공백·문장부호 제외)
-BRAND_CONTEXT = re.compile(r"연애사주|사주|연애운|궁합|운세|짝|인연")
+# 짝은 낱말 첫머리일 때만 인정한다 (반짝반짝·깜짝·짝짝 속 짝은 연애 맥락이 아니다)
+BRAND_CONTEXT = re.compile(r"연애사주|사주|연애운|궁합|운세|(?<![가-힣])짝(?!짝)|인연")
 BRAND_CONTEXT_DISTANCE = 15  # 브랜드와 맥락 표현 사이의 최대 글자 수
 
 
