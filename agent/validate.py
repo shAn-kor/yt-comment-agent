@@ -46,7 +46,7 @@ ANCHOR_MIN = 5  # 인용구로 인정하는 최소 글자 수 (공백·문장부
 BRAND_CONTEXT = re.compile(r"연애사주|사주|연애운|궁합|운세|(?<![가-힣])짝(?!짝)|인연")
 BRAND_CONTEXT_DISTANCE = 40  # 앞 문장에 있는 맥락 표현 끝부터 브랜드까지
 WISH_BRIDGE = re.compile(
-    r"인연|언제|될지|맞는\s*사람|이\s*사람이랑|궁합\s*문제|타이밍|만날"
+    r"인연|언제|될지|맞는\s*사람|이\s*사람(?:이랑|과|이)|궁합\s*문제|타이밍|만날|이번.{0,8}다를지|다시.{0,8}이어질지"
 )
 SINGLE_SOURCE = re.compile(
     r"친구\s*(?:가|한테)|언니\s*가|동생\s*이|지인\s*이|회사\s*동료\s*가"
@@ -55,16 +55,19 @@ EFFICACY = re.compile(
     r"맞췄대|맞았대|용하대|잘\s*맞힌대|소름|후기|추천|강추|맞더라|맞추더|용하더"
 )
 REPORTED_USE = re.compile(
-    r"(?:봤다는|다녀왔다는|보고\s*왔다는|보러\s*간|본)(?=\s*사람)"
+    r"(?:봤다는|다녀왔다는|보고\s*왔다는|보고\s*온|보러\s*간|본)(?=\s*사람)"
 )
 PLURAL_REPORT = re.compile(
-    r"(?:봤다는|다녀왔다는|보고\s*왔다는|보러\s*간|본)\s*사람\s*(?:들(?:이|은|도)?(?![가-힣])|(?:이\s*)?(?:몇\s*명|여럿|여러\s*명))"
+    r"(?:봤다는|다녀왔다는|보고\s*왔다는|보고\s*온|보러\s*간|본)\s*사람\s*(?:들(?:이|은|도)?(?![가-힣])|(?:이\s*)?(?:몇\s*명|여럿|여러\s*명))"
 )
-HEARSAY_END = re.compile(r"있던데|있다던데|있대|있다고|하던데|한다던데|들었")
+HEARSAY_END = re.compile(
+    r"있던데|있더라|있다더라|있다던데|있대|있다고|하던데|하더라|한다던데|들었|들리"
+)
 PLURAL_TALK = re.compile(
-    r"(?:주변|여럿|여러\s*사람).{0,40}얘기\s*(?:많이|자주)\s*하던데"
+    r"(?:주변|여럿|여러\s*사람).{0,40}얘기(?:\s*(?:가|는|도)?\s*(?:많이|자주)\s*(?:하|들리)|(?:하는|한)\s*사람\s*(?:들|(?:이\s*)?(?:몇\s*명|여럿|여러\s*명)))"
 )
 FIRST_SUBJECT = re.compile(r"(?<![가-힣])(?:나|저)(?:는|도|가)?(?![가-힣])|내가|제가")
+WISH_ENDING_SIMILARITY = 0.7
 ENDING_SIMILARITY = 0.45  # 짧은 종결 문장의 어미만 바꾼 반복도 잡는다
 REACTION = re.compile(
     r"(?<![가-힣])(?:나|내|저|제|우리)(?:는|도|가|만|를|랑|한테|에게|의)?(?![가-힣])"
@@ -119,10 +122,52 @@ def plural_hearsay(text: str, brand: str) -> bool:
         and not SINGLE_SOURCE.search(sentence)
         and not EFFICACY.search(sentence)
         and (
-            (PLURAL_REPORT.search(sentence) and HEARSAY_END.search(sentence))
-            or PLURAL_TALK.search(sentence)
+            HEARSAY_END.search(sentence)
+            and (PLURAL_REPORT.search(sentence) or PLURAL_TALK.search(sentence))
         )
     )
+
+
+def _wish_ending(text: str, brand: str) -> str:
+    sentences = _sentences(unicodedata.normalize("NFKC", text))
+    for index, sentence in enumerate(sentences):
+        if brand in sentence:
+            return " ".join(sentences[max(0, index - 1) : index + 1])
+    return ""
+
+
+def _wish_form(text: str, brand: str) -> str:
+    prefix = _wish_ending(text, brand).split(brand, 1)[0]
+    # Last explicit outcome cue wins; introductory video words must not dominate.
+    forms = {
+        "person_fit": r"이\s*사람(?:이랑|과|이).{0,20}?(?:맞|인연)|인연인지|맞는\s*인연",
+        "when": r"언제",
+        "timing": r"타이밍",
+        "next_try": r"이번.{0,8}다를지",
+        "reunion": r"다시.{0,8}이어질지|다시\s*만날",
+        "future": r"(?:잘|어떻게)\s*될지",
+        "meeting": r"맞는\s*사람|만날|오는지",
+        "compatibility": r"궁합\s*문제",
+    }
+    matches = [
+        (match.start(), name)
+        for name, pattern in forms.items()
+        for match in re.finditer(pattern, prefix)
+    ]
+    return max(matches)[1] if matches else ""
+
+
+def wish_ending_similarity(text: str, previous: str, brand: str) -> float:
+    left, right = _wish_ending(text, brand), _wish_ending(previous, brand)
+    lexical = similarity(left.replace(brand, ""), right.replace(brand, ""))
+    form = _wish_form(text, brand)
+    same_template = bool(
+        form
+        and form == _wish_form(previous, brand)
+        and plural_hearsay(text, brand)
+        and plural_hearsay(previous, brand)
+    )
+    return max(lexical, WISH_ENDING_SIMILARITY if same_template else 0.0)
 
 
 def _has_wish_bridge(text: str, brand: str) -> bool:
@@ -390,13 +435,16 @@ def validate_comment(
             if ending
             and p
             and brand in p
-            and similarity(
-                ending,
-                _brand_sentence(unicodedata.normalize("NFKC", p), brand).replace(
-                    brand, ""
-                ),
+            and (
+                similarity(
+                    ending,
+                    _brand_sentence(unicodedata.normalize("NFKC", p), brand).replace(
+                        brand, ""
+                    ),
+                )
+                >= ENDING_SIMILARITY
+                or wish_ending_similarity(plain, p, brand) >= WISH_ENDING_SIMILARITY
             )
-            >= ENDING_SIMILARITY
         ),
         None,
     )
@@ -404,7 +452,7 @@ def validate_comment(
         "ending_unique",
         "브랜드 문장도 영상마다 다르게",
         not repeated_ending,
-        "이전 댓글과 브랜드 문장이 너무 비슷합니다. 영상 고민에 맞춰 마지막 문장의 어휘와 구성을 바꾸세요"
+        "이전 댓글과 브랜드 문장이 너무 비슷합니다. 바람+브랜드 끝부분의 어휘와 구성, 결과 바람 자체를 바꾸세요. 이 사람이랑 맞는 인연인지+주변에서 본 사람 몇 명 같은 틀을 반복하지 말고 언제쯤 될지·이번엔 다를지·타이밍인지·다시 이어질지 등 영상에 맞는 다른 바람과 전언을 쓰세요"
         if repeated_ending
         else "",
     )

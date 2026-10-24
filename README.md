@@ -115,10 +115,10 @@ tests/              pytest
 
 ## 댓글 말투 비교
 
-내 막힌 상황에서 인연·타이밍·이 사람 문제를 짚고, 언제 또는 맞는지 알고 싶은 바람을 거쳐 브랜드로 이어 간다. 브랜드는 주변 사람 몇 명·여럿의 전언으로 소개한다. 한 사람의 소개나 효능 주장은 쓰지 않는다. 한 번에 서로 다른 후보 4개를 만들고, 통과 후보 중 존댓말 어미·상담사 말투가 적고 100자를 넘지 않는 것을 먼저 고른 뒤, 복수 전언이 있는 후보와 이전 댓글에 덜 반복되는 후보 순으로 고른다. 승인된 예시 5개는 말투 참고로 쓰되 같은 영상의 예시는 뺀다. 목표는 음슴체·반말 60~100자다. 물음표는 전각까지 합쳐 최대 하나다. 브랜드 문장이나 직전 문장에는 내 결과 바람이 있어야 한다. 복수의 제삼자 이용 전언만 허용하고 직접 이용·추천·효능 주장은 거절한다. 설정의 40~120자 제한과 기존 검사도 유지한다.
+내 막힌 상황에서 인연·타이밍·이 사람 문제를 짚고, 언제 또는 맞는지 알고 싶은 바람을 거쳐 브랜드로 이어 간다. 브랜드는 주변 사람 몇 명·여럿의 전언으로 소개한다. 한 사람의 소개나 효능 주장은 쓰지 않는다. 한 번에 서로 다른 후보 4개를 만들고, 통과 후보 중 존댓말 어미·상담사 말투가 적고 100자를 넘지 않는 것을 먼저 고른 뒤, 복수 전언이 있는 후보와 이전 댓글에 덜 반복되는 후보 순으로 고른다. 승인된 예시 5개는 말투 참고로 쓰되 같은 영상의 예시는 뺀다. 목표는 음슴체·반말 60~100자다. 물음표는 전각까지 합쳐 최대 하나다. 바람과 복수 전언을 함께 반복한 끝부분도 거절한다. 언제쯤·이번엔 다를지·타이밍·다시 이어질지처럼 결과 바람 자체를 바꿔야 한다. 브랜드 문장이나 직전 문장에는 내 결과 바람이 있어야 한다. 복수의 제삼자 이용 전언만 허용하고 직접 이용·추천·효능 주장은 거절한다. 설정의 40~120자 제한과 기존 검사도 유지한다.
 
 ```bash
-LLM_PROVIDER=codex LLM_MODEL=gpt-6-luna LLM_REASONING_EFFORT=low uv run python scripts/generate_final.py --contexts "$HOME/ai-workspace/scratch/comment-research/blind4-contexts.json" --order-key "$HOME/ai-workspace/scratch/comment-research/blind4/key.json" --output "$HOME/ai-workspace/scratch/comment-research/final1"
+LLM_PROVIDER=codex LLM_MODEL=gpt-6-luna LLM_REASONING_EFFORT=low uv run python scripts/generate_final.py --contexts "$HOME/ai-workspace/scratch/comment-research/blind4-contexts.json" --order-key "$HOME/ai-workspace/scratch/comment-research/blind4/key.json" --output "$HOME/ai-workspace/scratch/comment-research/final2"
 ```
 
 위 명령은 A/B 없이 대시보드의 최대 3회 피드백 생성 경로로 댓글·글자 수·검사 결과를 저장한다. 이전 비교 명령은 아래와 같다.
