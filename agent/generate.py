@@ -12,6 +12,7 @@ from .validate import (
     similarity,
     validate_comment,
 )
+from .voice_examples import examples_for
 
 
 def source_text(ctx: dict) -> str:
@@ -106,6 +107,7 @@ def _prompt_text(
 ) -> str:
     transcript = ctx["transcript"][:limit] if ctx["transcript"] else "(자막 없음)"
     comments = voice_comments(ctx.get("topComments", []), brand=brand)
+    examples = examples_for(ctx.get("videoId", ""))
     lines = [
         "너는 아래 영상 자료를 근거로 연애 고민에 반응하는 한국인 시청자다. 없는 고민을 만들지 말고 다음 순서대로 해라.",
         "",
@@ -117,15 +119,14 @@ def _prompt_text(
         "한 번의 응답에서 후보 4개를 만든다. 네 후보는 문장 수·질문 유무와 위치·문장 길이·말투를 의도적으로 다르게 한다. 반응+브랜드의 짧은 단정, 반응+관심+브랜드, 반응+질문+브랜드 등 메뉴를 다르게 조합하되 이것도 고정된 형식으로 복사하지 마라.",
         "",
         "댓글 규칙",
-        f"- 후보마다 설정의 공백 포함 {min}~{max}자를 지킨다. 70~110자는 참고일 뿐, 문장 수와 길고 짧은 호흡을 후보마다 바꿔라.",
+        f"- 후보마다 설정의 공백 포함 {min}~{max}자를 지킨다. 목표는 60~100자다. 예시가 더 길어도 길이를 따라 하지 말고 한 지점만 짧게 쓴다.",
         "- 댓글 전체의 물음표는 ?·？를 합쳐 최대 1개다. 질문이 없는 후보도 만든다. 반응·연결·사주 관심·시청자 질문을 전부 늘어놓지 마라.",
         "- 한줄요약 입장을 골라도 주장만 되풀이하지 마라. 브랜드가 없는 문장에 나·내·저·제·우리·중·싶·있음? 같은 내 반응이나 시청자 질문을 드러낸다.",
         "- 영상의 구체적인 주장·장면 하나를 자기 말로 풀어 반응한다. detail은 자막·장면 설명·제목·설명에 실제로 있는 5~15자 조각으로 골라 댓글 문장에 그대로 섞는다. 그 조각이나 문장을 따옴표로 감싸지 마라.",
-        "- 음슴체·반말 또는 담백한 존댓말 중 하나로 쓴다. ㅠㅠ·ㅋㅋ·이모지는 기본적으로 생략하고, 꼭 어울릴 때만 드물게 쓴다. 가벼운 1인칭 생각은 괜찮지만 구체적인 과거 경험은 지어내지 마라.",
+        "- 예시처럼 짧은 음슴체·반말만 쓴다. 존댓말 -요/-세요/-습니다/-네요, 상담사 말투, 여러분은 금지다. 가벼운 1인칭 반응은 가능하지만 날짜·직업·만남 횟수 같은 구체적인 사실이나 서비스 이용 경험은 지어내지 마라. ㅋㅋ·ㅠㅠ는 어울릴 때만 쓴다.",
         "- 자료에 없는 대사·장면·관계·연애 고민을 만들지 마라. 인기 댓글은 말투 참고용일 뿐 영상 내용의 근거가 아니다.",
         "- 제목이 파일명이면 그 파일명을 인용하지 마라. 썸네일만 있으면 보이는 사물만 짚고 소리·움직임이나 영상을 끝까지 봤다고 주장하지 마라.",
-        f"- {brand}은 연애 사주를 보는 곳이다. 필수 질문을 거치지 않아도 된다. 영상에 대한 내 반응에서 자연스럽게 이어 마지막에 딱 한 번 조심스럽게 꺼낸다. 같은 문장 또는 브랜드 앞 40자 이내에 사주·연애운·궁합·운세·짝·인연 맥락을 둔다. 브랜드로 시작하지 말고 마지막 문장 또는 댓글의 뒤쪽 35%에 넣는다.",
-        f"- 연결감만 보여 주는 한 가지 예시다. 박자 수·순서는 따라 하지 말고 후보는 메뉴 2~3개만 쓴다: 상황 따라 달라진다는 말 듣고 그 사람 이해하려다 또 기다리는 중. 결국 우리 궁합 문제 아닌가 싶어서 연애사주 한번 보고 싶어지는데 사주 본 사람 있음? {brand}이란 곳이 괜찮아 보이던데",
+        f"- {brand}은 연애 사주를 보는 곳이다. 필수 질문을 거치지 않아도 된다. 영상에 대한 내 반응에서 자연스럽게 이어 마지막에 딱 한 번 조심스럽게 꺼낸다. 같은 문장 또는 브랜드 앞 40자 이내에 사주·연애운·궁합·운세·짝·인연 맥락을 둔다. 브랜드로 시작하지 말고 마지막 문장에 잠정적인 인상 또는 다른 사람에게 묻는 말로 넣는다.",
         "- 고정된 마지막 문장을 만들지 마라. 예시의 어휘·질문·종결 문장을 영상마다 바꾸고, 이미 쓴 댓글의 브랜드 문장을 어미만 바꿔 반복하지 마라.",
         f"- {brand}을 직접 이용해 본 것처럼 쓰지 않는다 (봤다, 받아봤다, 맞더라, 다녀왔다, 후기 같은 말 금지). 관심이나 망설임만 표현한다.",
         '- 상투적인 표현 금지: 인연은 타이밍, 잘 본다던데, 유용하네요, 공감 100, 뜨끔했. "인용 + 공감 + 운명 이야기 + 브랜드 칭찬" 순서로 쓰지 마라.',
@@ -135,6 +136,9 @@ def _prompt_text(
         '출력: 다른 말 없이 후보 4개의 JSON 배열만. 각 객체는 relevant, concern, stance, bridge, detail, comment를 담는다. 영상이 연애와 무관할 때만 {"relevant": false} 객체 하나로 거절한다.',
         '[{"relevant": true, "concern": "...", "stance": "한줄요약", "bridge": "", "detail": "...", "comment": "..."}, {"relevant": true, "concern": "...", "stance": "자기고백", "bridge": "...", "detail": "...", "comment": "..."}, {"relevant": true, "concern": "...", "stance": "반박·비틀기", "bridge": "", "detail": "...", "comment": "..."}, {"relevant": true, "concern": "...", "stance": "다른 시청자에게 질문", "bridge": "...", "detail": "...", "comment": "..."}]',
         "",
+        "[승인된 말투 예시 — 말투·호흡만 참고. 어휘·문장·상황을 복사하지 말고 현재 영상 자료로 새로 쓸 것. 이 영상 자신의 예시는 제외했다]",
+        *[f"- {example['comment']}" for example in examples],
+        "[반환 전 자체 확인: 후보마다 물음표 0~1개, 마지막 문장에 브랜드 1회, 음슴체·반말, 60~100자 목표. 조건을 확인한 뒤 JSON 배열만 반환]",
         f"[제목] {ctx['title']}",
         f"[채널] {ctx['channelName']}",
         f"[설명] {ctx['description'] or '(없음)'}",
@@ -245,10 +249,35 @@ def diversity(comment: str, previous, brand: str) -> dict:
     }
 
 
+def register_match(comment: str) -> dict:
+    """Simple register signal, not a learned quality score."""
+    polite = 0
+    for sentence in _sentences(unicodedata.normalize("NFKC", comment)):
+        core = re.sub(r"[\W_\u1100-\u11ff\u3130-\u318f]+$", "", sentence)
+        match = re.search(r"[가-힣]+$", core)
+        word = match.group() if match else ""
+        if word not in {"필요", "중요", "수요", "주요"} and word.endswith(
+            ("요", "습니다", "습니까")
+        ):
+            polite += 1
+    return {
+        "polite_endings": polite,
+        "counseling": comment.count("여러분"),
+        "length_excess": max(0, len(comment.strip()) - 100),
+    }
+
+
 def select_candidates(
-    candidates: list[dict], ctx: dict, *, brand: str, min: int, max: int, previous=()
+    candidates: list[dict],
+    ctx: dict,
+    *,
+    brand: str,
+    min: int,
+    max: int,
+    previous=(),
+    prefer_register: bool = True,
 ) -> dict:
-    """통과 후보 중 끝문장·호흡의 반복이 적은 것을 고른다. 추가 LLM 호출 없음."""
+    """통과 후보의 말투·길이를 먼저, 그다음 반복을 본다. 추가 LLM 호출 없음."""
     previous = list(previous)
     assessed = []
     for index, candidate in enumerate(candidates):
@@ -277,6 +306,7 @@ def select_candidates(
                 "index": index,
                 "validation": validation,
                 "diversity": diversity(candidate["comment"], previous, brand),
+                "register": register_match(candidate["comment"]),
             }
         )
     passing = [item for item in assessed if item["validation"]["ok"]]
@@ -285,6 +315,10 @@ def select_candidates(
         pool,
         key=lambda item: (
             0 if passing else len(item["validation"]["errors"]),
+            item["register"]["polite_endings"] + item["register"]["counseling"]
+            if prefer_register
+            else 0,
+            item["register"]["length_excess"] if prefer_register else 0,
             item["diversity"]["score"],
             item["diversity"]["overall"],
             item["index"],
@@ -302,6 +336,7 @@ def select_candidates(
                 key: item["validation"][key] for key in ("ok", "errors", "chars")
             },
             "diversity": item["diversity"],
+            "register": item["register"],
         }
         for item in assessed
     ]

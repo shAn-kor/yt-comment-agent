@@ -195,14 +195,14 @@ def test_프롬프트는_연애_관련성_확인_후_고민을_먼저_정리():
     )
     assert "연애·데이트·연인 관계" in prompt and "false" in prompt
     assert "운명원이란 곳이 괜찮아 보이던데" in prompt and ctx["scene"] in prompt
-    assert "70~110자" in prompt and "역설·자기고백" in prompt
+    assert "60~100자" in prompt and "역설·자기고백" in prompt
     assert "사주·궁합 관심(선택)" in prompt and "다른 시청자에게 질문" in prompt
     assert "순서표가 아니라 선택 메뉴" in prompt and "2~3개 박자" in prompt
     assert "후보 4개" in prompt and "최대 1개" in prompt
     assert "문장 수·질문 유무와 위치·문장 길이·말투" in prompt
     assert "연결이 어렵다는 이유로 거절하지 말고" in prompt
     assert "고정된 마지막 문장을 만들지 마라" in prompt
-    assert "따옴표로 감싸지 마라" in prompt and "기본적으로 생략" in prompt
+    assert "따옴표로 감싸지 마라" in prompt and "어울릴 때만" in prompt
     assert '"relevant": true' in prompt
     assert "제목과 설명만 사용" not in prompt
     assert "자료에 없는 대사·장면·관계·연애 고민을 만들지 마라" in prompt

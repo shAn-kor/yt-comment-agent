@@ -183,6 +183,14 @@ def validate_comment(
     add("brand", f'"{brand}" 한 번', n == 1, brand_note)
 
     plain = unicodedata.normalize("NFKC", text)
+    add(
+        "counseling",
+        "상담사 말투 금지",
+        "여러분" not in plain,
+        '"여러분" 대신 내 반응을 짧은 음슴체·반말로 쓰세요'
+        if "여러분" in plain
+        else "",
+    )
     questions = plain.count("?")
     add(
         "questions",

@@ -332,7 +332,9 @@ def extract_scene(video_id: str, info: dict) -> tuple[str, str]:
     return "", ""
 
 
-def get_video_context(video_id: str, comments: bool = True) -> dict:
+def get_video_context(
+    video_id: str, comments: bool = True, *, include_scene: bool = True
+) -> dict:
     """영상 메타·자막·인기 댓글"""
     if not is_video_id(video_id):
         raise ValueError(f"영상 ID 형식이 아님: {video_id!r}")
@@ -356,7 +358,7 @@ def get_video_context(video_id: str, comments: bool = True) -> dict:
     track = _pick_caption(info)
     transcript = _fetch_transcript(track[1]) if track else ""
     scene, scene_label = ("", "")
-    if len(re.sub(r"\s+", "", transcript)) < SHORT_TRANSCRIPT:
+    if include_scene and len(re.sub(r"\s+", "", transcript)) < SHORT_TRANSCRIPT:
         scene, scene_label = extract_scene(video_id, info)
     roots = [c for c in info.get("comments") or [] if c.get("parent") in (None, "root")]
     roots.sort(key=lambda c: c.get("like_count") or 0, reverse=True)

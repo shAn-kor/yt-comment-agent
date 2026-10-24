@@ -33,24 +33,27 @@ from agent.generate import (
     voice_comments,
 )
 from agent.llm import (
-    CODEX_EFFORT,
     CODEX_MODEL,
     OPENAI_COMPATIBLE,
     backend_name,
     complete,
     provider_name,
+    reasoning_effort,
 )
 from agent.validate import validate_comment
+from agent.voice_examples import GOLD_IDS
 from agent.youtube import fetch_channel_feed, get_video_context
 from scripts.bridge_baseline import build_prompt as bridge_baseline_prompt
+from scripts.gold_baseline import build_prompt as gold_baseline_prompt
 from scripts.shapes_baseline import build_prompt as shapes_baseline_prompt
 from scripts.voice_baseline import build_prompt as original_baseline_prompt
 
-BASE_REVISION = "50a3cf1"
+BASE_REVISION = "f1c6e45"
 BASELINES = {
     "b53e4f7": original_baseline_prompt,
     "5a88e9a": bridge_baseline_prompt,
     "50a3cf1": shapes_baseline_prompt,
+    "f1c6e45": gold_baseline_prompt,
 }
 RESEARCH = Path.home() / "ai-workspace/scratch/comment-research"
 
@@ -168,7 +171,7 @@ def save_sheet(output: Path, record: dict) -> None:
         "영상 내용에 맞고 광고 말투가 덜한 쪽을 고른다. 검증 결과와 버전 정보는 key.json에 따로 저장한다.",
         "각 초안은 단발 생성(single-shot)이며, 검사 결과를 붙여 다시 쓰는 재작성 루프는 사용하지 않았다. 영상 자료는 실제 자막 또는 장면 설명과 영상 설명을 포함한다.",
         "각 버전에는 그 버전에서 앞서 만든 초안을 참고 이력으로 넘겼다. 두 버전의 이력은 섞지 않았다.",
-        "한쪽은 단일 초안, 다른 쪽은 한 응답의 네 후보를 검사해 반복이 적은 통과 후보를 골랐다. 통과 후보가 없으면 실패 초안을 그대로 남겼으며 재작성하지 않았다.",
+        "각 버전은 같은 횟수만 호출했다. 네 후보 방식은 코드로 선택하며, 통과 후보가 없어도 재작성하지 않았다. 구체적인 선택 기준은 버전 키에 기록했다.",
         "",
     ]
     if record.get("provider"):
@@ -193,8 +196,6 @@ def save_sheet(output: Path, record: dict) -> None:
             "",
             f"영상: `{row['videoId']}`",
             "",
-            f"실제 최다 좋아요 댓글 ({ref['likes']}개, 최대 200자): {md(ref['text'])}",
-            "",
         ]
         for label in ("A", "B"):
             result = row["drafts"].get(row["labels"][label])
@@ -209,7 +210,12 @@ def save_sheet(output: Path, record: dict) -> None:
                     md(result["comment"]) or "(초안 거절)",
                     "",
                 ]
-        lines += ["선택: A / B / 비슷함", ""]
+        lines += [
+            f"참고: 실제 최다 좋아요 댓글 ({ref['likes']}개, 최대 200자): {md(ref['text'])}",
+            "",
+            "선택: A / B / 비슷함",
+            "",
+        ]
     output.mkdir(parents=True, exist_ok=True)
     (output / "sheet.md").write_text("\n".join(lines), encoding="utf-8")
     temporary = output / "key.json.tmp"
@@ -252,6 +258,11 @@ def compare(
         "effort": effort,
         "cli_path": cli_path,
         "new_candidate_count": 4,
+        "old_candidate_count": 4 if baseline_revision == "f1c6e45" else 1,
+        "selection": {
+            "old": "diversity" if baseline_revision == "f1c6e45" else "single",
+            "new": "register_then_diversity",
+        },
         "empty_retry_limit": empty_retries,
         "prompt_variant": "short" if provider == "groq" else "full",
         "seed": seed,
@@ -329,7 +340,8 @@ def compare(
                     raw = llm(prompt)
                     if not str(raw).strip():
                         raise RuntimeError("LLM이 빈 답을 돌려줌")
-                    if version == "new":
+                    candidate_mode = version == "new" or baseline_revision == "f1c6e45"
+                    if candidate_mode:
                         parsed = select_candidates(
                             parse_candidates(raw),
                             ctx,
@@ -337,6 +349,7 @@ def compare(
                             min=rules.min,
                             max=rules.max,
                             previous=histories[version],
+                            prefer_register=version == "new",
                         )
                         validation = parsed["validation"]
                     else:
@@ -361,7 +374,7 @@ def compare(
                         "validation": validation,
                         "chars": validation["chars"],
                         "candidate_count": len(parsed.get("candidates", []))
-                        if version == "new"
+                        if candidate_mode
                         else 1,
                         "error_history": list(errors),
                     }
@@ -411,8 +424,9 @@ def main(argv=None) -> int:
         "--contexts", type=Path, help="cached get_video_context JSON list"
     )
     parser.add_argument("--comments", type=Path, default=RESEARCH / "comments.jsonl")
-    parser.add_argument("--output", type=Path, default=RESEARCH / "blind3")
+    parser.add_argument("--output", type=Path, default=RESEARCH / "blind4")
     parser.add_argument("--require-codex-cli", action="store_true")
+    parser.add_argument("--exclude-gold", action="store_true")
     parser.add_argument("--empty-retries", type=int, choices=(0, 1), default=0)
     parser.add_argument("--baseline", choices=tuple(BASELINES), default=BASE_REVISION)
     parser.add_argument("--seed", type=int)
@@ -438,7 +452,7 @@ def main(argv=None) -> int:
             or (provider == "claude" and not os.environ.get("ANTHROPIC_API_KEY"))
             else "api"
         )
-        effort = CODEX_EFFORT if provider == "codex" else ""
+        effort = reasoning_effort() if provider == "codex" else ""
         cli_path = (
             shutil.which(os.environ.get("CODEX_CLI", "codex"))
             if provider == "codex"
@@ -451,6 +465,8 @@ def main(argv=None) -> int:
                 "이 비교는 Codex CLI 경로가 있는 LLM_PROVIDER=codex 설정이 필요함"
             )
         contexts = select_contexts(config, args.count, args.contexts)
+        if args.exclude_gold and any(ctx["videoId"] in GOLD_IDS for ctx in contexts):
+            raise ValueError("홀드아웃 비교에는 승인 예시 영상 5개를 넣을 수 없음")
         attach_likes(contexts, args.comments)
         result = compare(
             contexts,

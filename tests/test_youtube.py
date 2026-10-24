@@ -130,6 +130,12 @@ def test_자막이_없거나_짧으면_장면을_읽음(monkeypatch, transcript)
     assert ctx["scene"] == "흰 강아지가 풀밭을 걷는다."
     assert "영상 화면·소리" in ctx["sourceLabel"]
     assert ctx["transcript"] == transcript
+    calls.clear()
+    caption_only = youtube.get_video_context(
+        "295yVVpRbmI", comments=False, include_scene=False
+    )
+    assert calls == [] and caption_only["scene"] == ""
+    assert caption_only["transcript"] == transcript
 
 
 def test_인기_댓글은_답글_제외하고_좋아요_수를_보존(monkeypatch):

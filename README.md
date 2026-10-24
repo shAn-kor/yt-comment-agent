@@ -19,17 +19,18 @@ uv run python scripts/login.py 유튜브1     # 일반 Chrome이 열린다. 테�
 
 선택: 프로젝트 폴더에 `.env` 파일을 만들면 아래 값을 읽는다.
 
-| 이름                 | 뜻                                                                 |
-| -------------------- | ------------------------------------------------------------------ |
-| `LLM_PROVIDER`       | `claude` · `codex` · `gemini` · `groq` · `openrouter`. 비우면 자동 |
-| `LLM_MODEL`          | 모델 이름. 비우면 아래 표의 기본 모델                              |
-| `ANTHROPIC_API_KEY`  | Claude API 키. 없으면 로컬 `claude` CLI                            |
-| `GEMINI_API_KEY`     | Gemini API 키                                                      |
-| `GROQ_API_KEY`       | Groq API 키                                                        |
-| `OPENROUTER_API_KEY` | OpenRouter API 키                                                  |
-| `CODEX_CLI`          | Codex 실행 파일 경로 (기본 `codex`)                                |
-| `CHROME_PATH`        | Chrome 실행 파일 경로 (macOS 기본 경로가 아닐 때)                  |
-| `PORT`               | 기본 4310                                                          |
+| 이름                   | 뜻                                                                 |
+| ---------------------- | ------------------------------------------------------------------ |
+| `LLM_PROVIDER`         | `claude` · `codex` · `gemini` · `groq` · `openrouter`. 비우면 자동 |
+| `LLM_MODEL`            | 모델 이름. 비우면 아래 표의 기본 모델                              |
+| `ANTHROPIC_API_KEY`    | Claude API 키. 없으면 로컬 `claude` CLI                            |
+| `GEMINI_API_KEY`       | Gemini API 키                                                      |
+| `GROQ_API_KEY`         | Groq API 키                                                        |
+| `OPENROUTER_API_KEY`   | OpenRouter API 키                                                  |
+| `LLM_REASONING_EFFORT` | Codex 추론 수준: `low` (기본) 또는 `medium`                        |
+| `CODEX_CLI`            | Codex 실행 파일 경로 (기본 `codex`)                                |
+| `CHROME_PATH`          | Chrome 실행 파일 경로 (macOS 기본 경로가 아닐 때)                  |
+| `PORT`                 | 기본 4310                                                          |
 
 ### AI 고르기
 
@@ -114,13 +115,13 @@ tests/              pytest
 
 ## 댓글 말투 비교
 
-반응·연결 질문·사주 관심·시청자 질문·브랜드는 순서가 아니라 메뉴다. 구체적인 내 반응과 늦게 나오는 브랜드를 포함해 2~3개 박자만 쓴다. 한 번에 서로 다른 후보 4개를 만들고, 통과 후보 중 이전 댓글과 끝문장·호흡이 덜 비슷한 것을 고른다. 물음표는 전각까지 합쳐 최대 하나다. 설정의 40~120자 제한과 기존 검사도 유지한다.
+반응·연결 질문·사주 관심·시청자 질문·브랜드는 순서가 아니라 메뉴다. 구체적인 내 반응과 늦게 나오는 브랜드를 포함해 2~3개 박자만 쓴다. 한 번에 서로 다른 후보 4개를 만들고, 통과 후보 중 존댓말 어미·상담사 말투가 적고 100자를 넘지 않는 것을 먼저 고른 뒤, 이전 댓글과 끝문장·호흡이 덜 비슷한 것을 고른다. 승인된 예시 5개는 말투 참고로 쓰되 같은 영상의 예시는 뺀다. 목표는 음슴체·반말 60~100자다. 물음표는 전각까지 합쳐 최대 하나다. 설정의 40~120자 제한과 기존 검사도 유지한다.
 
 ```bash
-LLM_PROVIDER=codex LLM_MODEL=gpt-6-luna uv run python scripts/compare_voice.py --require-codex-cli --empty-retries 0 --count 8 --delay 5 --baseline 50a3cf1 --output "$HOME/ai-workspace/scratch/comment-research/blind3"
+LLM_PROVIDER=codex LLM_MODEL=gpt-6-luna uv run python scripts/compare_voice.py --require-codex-cli --exclude-gold --empty-retries 0 --count 8 --delay 5 --baseline f1c6e45 --contexts "$HOME/ai-workspace/scratch/comment-research/blind4-contexts.json" --output "$HOME/ai-workspace/scratch/comment-research/blind4"
 ```
 
-위 예시는 Codex CLI의 `gpt-6-luna`, `low` 추론에 고정한다. 이전 프롬프트는 초안 하나, 새 프롬프트는 후보 4개와 코드 선택을 사용한다. 양쪽 모두 한 번만 호출하며 검사 피드백으로 다시 쓰지 않는다. 결과는 `~/ai-workspace/scratch/comment-research/blind3/`에 저장하고, 공급자·모델·추론 수준·CLI 경로·후보 검사 결과를 기록한다. Codex는 `--ignore-user-config`·`--ignore-rules`와 빈 임시 폴더를 사용한다. 읽기 전용·임시 실행 후 최종 출력 파일만 읽으며 인증은 기존 로그인을 쓴다. 호스트가 붙이는 기본 문맥까지 없애는 것은 아니다. `--contexts`와 `--comments`로 저장된 영상·댓글 자료를 재사용할 수 있다. 게시 기능은 없다. 검사 결과는 품질 선호도 점수를 대신하지 않는다.
+홀드아웃 자료는 `scripts/prepare_gold_holdout.py`로 준비한다. 승인 영상 5개를 빼고, 나머지 기존 자료 3개와 지정 채널의 새 자막 영상 최대 5개를 쓴다. `scripts/measure_gold_effort.py`는 같은 세 자료에서 low/medium의 물음표·브랜드 준수율을 비교한다. 측정으로 고른 `LLM_REASONING_EFFORT`를 두 버전에 똑같이 지정한다. 양쪽 모두 네 후보를 받고, 이전 버전은 반복 기준만, 새 버전은 말투·길이 우선 기준으로 선택한다. 양쪽 모두 한 번만 호출하며 검사 피드백으로 다시 쓰지 않는다. 결과는 `~/ai-workspace/scratch/comment-research/blind4/`에 저장하고, 공급자·모델·추론 수준·CLI 경로·후보 검사 결과를 기록한다. Codex는 `--ignore-user-config`·`--ignore-rules`와 빈 임시 폴더를 사용한다. 읽기 전용·임시 실행 후 최종 출력 파일만 읽으며 인증은 기존 로그인을 쓴다. 호스트가 붙이는 기본 문맥까지 없애는 것은 아니다. `--contexts`와 `--comments`로 저장된 영상·댓글 자료를 재사용할 수 있다. 게시 기능은 없다. 검사 결과는 품질 선호도 점수를 대신하지 않는다.
 
 ## 알려진 한계
 

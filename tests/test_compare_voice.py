@@ -14,7 +14,7 @@ from tests.test_validate import GOOD
 
 
 def generation_response(prompt, payload):
-    return json.dumps(payload) if str(prompt) == "OLD" else candidate_json(payload)
+    return candidate_json(payload)
 
 
 def context(video_id="allowedVid1"):
@@ -34,6 +34,7 @@ def context(video_id="allowedVid1"):
     [
         ("b53e4f7", "voice_baseline.py", ("build_prompt", "_prompt_text")),
         ("50a3cf1", "shapes_baseline.py", ("build_prompt", "_prompt_text")),
+        ("f1c6e45", "gold_baseline.py", ("build_prompt", "_prompt_text")),
         (
             "5a88e9a",
             "bridge_baseline.py",
@@ -66,11 +67,49 @@ def test_동결한_프롬프트_함수는_고정_커밋과_동일(revision, file
         assert ast.dump(before) == ast.dump(after)
 
 
+def test_이전_단일후보_기준도_계속_지원(tmp_path):
+    def llm(prompt):
+        payload = {"detail": "연락 빈도부터 줄", "comment": GOOD}
+        return json.dumps(payload) if str(prompt) == "OLD" else candidate_json(payload)
+
+    result = comparison.compare(
+        [context()],
+        SimpleNamespace(**RULES),
+        tmp_path,
+        old_builder=lambda *a, **k: "OLD",
+        llm=llm,
+        baseline_revision="50a3cf1",
+        empty_retries=0,
+    )
+    assert result["rows"][0]["drafts"]["old"]["candidate_count"] == 1
+    sheet = (tmp_path / "sheet.md").read_text()
+    assert sheet.index("### B") < sheet.index("참고: 실제 최다 좋아요 댓글")
+
+
+def test_홀드아웃_옵션은_승인영상이_있으면_요청_전에_중단(tmp_path, monkeypatch):
+    from agent.voice_examples import VOICE_EXAMPLES
+
+    monkeypatch.setattr(comparison, "load_env", lambda: None)
+    monkeypatch.setattr(comparison, "load_config", lambda: SimpleNamespace())
+    monkeypatch.setattr(comparison, "configured_model", lambda: ("codex", "gpt-6-luna"))
+    monkeypatch.setattr(
+        comparison,
+        "select_contexts",
+        lambda *a: [{**context(), "videoId": VOICE_EXAMPLES[0]["videoId"]}],
+    )
+    monkeypatch.setattr(
+        comparison,
+        "compare",
+        lambda *a, **k: pytest.fail("승인 영상으로 생성하면 안 됨"),
+    )
+    assert comparison.main(["--exclude-gold", "--output", str(tmp_path)]) == 1
+
+
 def test_이전_프롬프트는_동결본을_사용():
     prompt = comparison.baseline_builder()(CTX, **RULES)
     assert "3) bridge" in prompt and "4) comment" in prompt and "70~110자" in prompt
-    assert "다섯 흐름을 순서대로" in prompt and "후보 4개" not in prompt
-    assert comparison.BASE_REVISION == "50a3cf1"
+    assert "순서표가 아니라 선택 메뉴" in prompt and "후보 4개" in prompt
+    assert comparison.BASE_REVISION == "f1c6e45"
     archive = comparison.baseline_builder("b53e4f7")(CTX, **RULES)
     assert "2) comment" in archive and "잘 본다던데" in archive
 
@@ -315,7 +354,7 @@ def test_Codex_단발_비교는_전체_프롬프트와_선택결과_메타데이
     assert "가" * 6000 in new_prompt
     drafts = result["rows"][0]["drafts"]
     assert (
-        drafts["old"]["candidate_count"] == 1 and drafts["new"]["candidate_count"] == 4
+        drafts["old"]["candidate_count"] == 4 and drafts["new"]["candidate_count"] == 4
     )
     assert len(drafts["new"]["candidates"]) == 4
     assert len(prompts) == 2

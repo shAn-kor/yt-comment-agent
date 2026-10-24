@@ -99,13 +99,22 @@ def _model(default: str) -> str:
     return os.environ.get("LLM_MODEL", "") or default
 
 
+def reasoning_effort() -> str:
+    effort = os.environ.get("LLM_REASONING_EFFORT", CODEX_EFFORT).strip().lower()
+    if effort not in {"low", "medium"}:
+        raise RuntimeError(
+            "Codex 추론 수준 LLM_REASONING_EFFORT는 low 또는 medium만 가능함"
+        )
+    return effort
+
+
 def backend_name() -> str:
     try:
         name = provider_name()
     except ValueError as e:
         return f"설정 오류 · {e}"
     if name == "codex":
-        return f"Codex CLI · {_model(CODEX_MODEL)} · {CODEX_EFFORT}"
+        return f"Codex CLI · {_model(CODEX_MODEL)} · {reasoning_effort()}"
     if name == "claude":
         if os.environ.get("ANTHROPIC_API_KEY"):
             return f"Claude API · {_model('claude-sonnet-5-5')}"
@@ -342,7 +351,7 @@ def _codex_cli(prompt: str) -> str:
             "-m",
             _model(CODEX_MODEL),
             "-c",
-            f'model_reasoning_effort="{CODEX_EFFORT}"',
+            f'model_reasoning_effort="{reasoning_effort()}"',
             "-c",
             "project_doc_max_bytes=0",
             "--ignore-user-config",

@@ -40,6 +40,7 @@ print("diagnostic stderr must not be returned", file=sys.stderr)
     monkeypatch.setenv("FAKE_CODEX_TRACE", str(trace))
     monkeypatch.setenv("LLM_PROVIDER", "codex")
     monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("LLM_REASONING_EFFORT", raising=False)
     monkeypatch.setattr(
         llm.httpx,
         "post",
@@ -65,6 +66,18 @@ def test_Codex_기본_모델과_저비용_추론_설정(fake_codex):
     assert trace["stdin"] == "후보 네 개를 써라"
     assert "multi_agent" in args and "shell_tool" in args and "browser_use" in args
     assert not Path(trace["cwd"]).exists()  # final answer and cwd cleaned
+
+
+def test_Codex_medium_추론은_실제_CLI_인수에_전달(fake_codex, monkeypatch):
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "medium")
+    llm.complete("글")
+    assert (
+        'model_reasoning_effort="medium"' in json.loads(fake_codex.read_text())["args"]
+    )
+    assert llm.backend_name().endswith("medium")
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "high")
+    with pytest.raises(RuntimeError, match="low 또는 medium"):
+        llm.complete("글")
 
 
 def test_Codex_명시적_모델_값은_유지(fake_codex, monkeypatch):

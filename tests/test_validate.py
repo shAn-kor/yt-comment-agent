@@ -21,6 +21,7 @@ def test_조건을_다_지키면_통과():
     assert [c["key"] for c in v["checks"]] == [
         "length",
         "brand",
+        "counseling",
         "questions",
         "brand_context",
         "brand_position",
