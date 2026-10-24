@@ -136,7 +136,7 @@ def test_고친_글_다시_검사(client):
         "/api/validate",
         json={"videoId": "allowedVid1", "comment": GOOD, "detail": "연락 빈도부터 줄"},
     ).json()
-    assert v["ok"] and len(v["checks"]) == 15
+    assert v["ok"] and len(v["checks"]) == 18
 
 
 def test_테스트_모드면_지정_채널에도_게시_차단(client):

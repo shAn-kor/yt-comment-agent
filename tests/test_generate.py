@@ -194,10 +194,10 @@ def test_프롬프트는_연애_관련성_확인_후_고민을_먼저_정리():
         < prompt.index("4) comment")
     )
     assert "연애·데이트·연인 관계" in prompt and "false" in prompt
-    assert "운명원이란 곳이 괜찮아 보이던데" in prompt and ctx["scene"] in prompt
+    assert "주변에서 운명원" in prompt and ctx["scene"] in prompt
     assert "60~100자" in prompt and "역설·자기고백" in prompt
-    assert "사주·궁합 관심(선택)" in prompt and "다른 시청자에게 질문" in prompt
-    assert "순서표가 아니라 선택 메뉴" in prompt and "2~3개 박자" in prompt
+    assert "내 막힌 상황·반응" in prompt and "주변 여러 사람의 전언" in prompt
+    assert "언제/맞는지 알고 싶은 바람" in prompt and "2~4문장" in prompt
     assert "후보 4개" in prompt and "최대 1개" in prompt
     assert "문장 수·질문 유무와 위치·문장 길이·말투" in prompt
     assert "연결이 어렵다는 이유로 거절하지 말고" in prompt
@@ -374,8 +374,8 @@ def test_문장_호흡_유사도는_문장수_질문위치_길이버킷을_봄()
 def test_통과_후보_중_반복점수가_낮은_것을_선택하고_동점은_원래순서():
     comments = [
         GOOD,
-        "나만 연락 빈도부터 줄면 마음 정리하나 싶다. 운명원 연애사주 얘기는 들어본 사람?",
-        "연락 빈도부터 줄면 나도 불안한가 봄. 궁합은 맞을까? 운명원은 좀 더 알아보려 함",
+        "나만 연락 빈도부터 줄면 이 사람이랑 맞는지 궁금함. 운명원 연애사주 얘기는 들어본 사람?",
+        "연락 빈도부터 줄면 나도 불안한가 봄. 이 사람이랑 궁합은 맞을까? 운명원은 좀 더 알아보려 함",
         "짧음",
     ]
     candidates = [

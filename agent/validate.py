@@ -45,10 +45,31 @@ ANCHOR_MIN = 5  # 인용구로 인정하는 최소 글자 수 (공백·문장부
 # 짝은 낱말 첫머리일 때만 인정한다 (반짝반짝·깜짝·짝짝 속 짝은 연애 맥락이 아니다)
 BRAND_CONTEXT = re.compile(r"연애사주|사주|연애운|궁합|운세|(?<![가-힣])짝(?!짝)|인연")
 BRAND_CONTEXT_DISTANCE = 40  # 앞 문장에 있는 맥락 표현 끝부터 브랜드까지
+WISH_BRIDGE = re.compile(
+    r"인연|언제|될지|맞는\s*사람|이\s*사람이랑|궁합\s*문제|타이밍|만날"
+)
+SINGLE_SOURCE = re.compile(
+    r"친구\s*(?:가|한테)|언니\s*가|동생\s*이|지인\s*이|회사\s*동료\s*가"
+)
+EFFICACY = re.compile(
+    r"맞췄대|맞았대|용하대|잘\s*맞힌대|소름|후기|추천|강추|맞더라|맞추더|용하더"
+)
+REPORTED_USE = re.compile(
+    r"(?:봤다는|다녀왔다는|보고\s*왔다는|보러\s*간|본)(?=\s*사람)"
+)
+PLURAL_REPORT = re.compile(
+    r"(?:봤다는|다녀왔다는|보고\s*왔다는|보러\s*간|본)\s*사람\s*(?:들(?:이|은|도)?(?![가-힣])|(?:이\s*)?(?:몇\s*명|여럿|여러\s*명))"
+)
+HEARSAY_END = re.compile(r"있던데|있다던데|있대|있다고|하던데|한다던데|들었")
+PLURAL_TALK = re.compile(
+    r"(?:주변|여럿|여러\s*사람).{0,40}얘기\s*(?:많이|자주)\s*하던데"
+)
+FIRST_SUBJECT = re.compile(r"(?<![가-힣])(?:나|저)(?:는|도|가)?(?![가-힣])|내가|제가")
 ENDING_SIMILARITY = 0.45  # 짧은 종결 문장의 어미만 바꾼 반복도 잡는다
 REACTION = re.compile(
     r"(?<![가-힣])(?:나|내|저|제|우리)(?:는|도|가|만|를|랑|한테|에게|의)?(?![가-힣])"
     r"|(?<![가-힣])중(?![가-힣])|싶|있음\s*[?？]"
+    r"|(?<![가-힣])나였네(?![가-힣])|이\s*영상\s*안\s*봤지"
 )
 SENTENCE_END = ".!?…\n。！？"
 STOCK_PHRASES = ("인연은 타이밍", "잘 본다던데", "유용하네요", "공감 100", "뜨끔했")
@@ -88,6 +109,54 @@ def _sentences(text: str) -> list[str]:
 
 def _brand_sentence(text: str, brand: str) -> str:
     return " ".join(s for s in _sentences(text) if brand in s)
+
+
+def plural_hearsay(text: str, brand: str) -> bool:
+    """Only plural reported usage/talk, never a single-person endorsement."""
+    sentence = _brand_sentence(unicodedata.normalize("NFKC", text), brand)
+    return bool(
+        sentence
+        and not SINGLE_SOURCE.search(sentence)
+        and not EFFICACY.search(sentence)
+        and (
+            (PLURAL_REPORT.search(sentence) and HEARSAY_END.search(sentence))
+            or PLURAL_TALK.search(sentence)
+        )
+    )
+
+
+def _has_wish_bridge(text: str, brand: str) -> bool:
+    sentences = _sentences(text)
+    return any(
+        WISH_BRIDGE.search(" ".join(sentences[max(0, index - 1) : index + 1]))
+        for index, sentence in enumerate(sentences)
+        if brand in sentence
+    )
+
+
+def _usage_violation(text: str, brand: str):
+    efficacy = EFFICACY.search(text)
+    if efficacy:
+        return efficacy
+    safe = []
+    for sentence in _sentences(text):
+        if plural_hearsay(sentence, brand):
+            # Remove only an explicitly reported third-person verb, not an entire clause.
+            original = sentence
+            sentence = REPORTED_USE.sub(
+                lambda match: (
+                    match.group()
+                    if FIRST_SUBJECT.search(original[: match.start()])
+                    else " "
+                ),
+                sentence,
+            )
+        if brand in sentence:
+            fake = FAKE_USE.search(sentence)
+            if fake:
+                return fake
+        safe.append(sentence)
+    return FORTUNE_USE.search(" ".join(safe))
 
 
 def _has_brand_context(text: str, brand: str) -> bool:
@@ -212,6 +281,27 @@ def validate_comment(
         n == 0 or _brand_is_late(plain, brand),
         "브랜드로 시작하지 말고 마지막 문장 또는 댓글의 뒤쪽 35%에 브랜드를 넣으세요",
     )
+    brand_sentence = _brand_sentence(plain, brand)
+    usage_sentence = re.sub(r"(?:들어|물어|알아|찾아)\s*본", " ", brand_sentence)
+    add(
+        "wish_bridge",
+        "내 상황의 풀리지 않은 바람",
+        n == 0 or _has_wish_bridge(plain, brand),
+        "브랜드 문장이나 바로 앞 문장에 내 인연·언제·될지·맞는 사람·이 사람이랑·궁합 문제·타이밍·만날 같은 풀리지 않은 바람을 넣으세요. 대화가 궁합에 영향을 주는지 같은 지적 질문만으로 연결하지 마세요",
+    )
+    add(
+        "single_source",
+        "한 사람의 전언 금지",
+        not SINGLE_SOURCE.search(brand_sentence),
+        "친구가·친구한테·언니가·동생이·지인이·회사 동료가 같은 한 사람의 전언 대신 주변 사람 몇 명·여럿의 전언을 쓰세요",
+    )
+    add(
+        "hearsay",
+        "이용 전언은 복수 출처만",
+        not REPORTED_USE.search(usage_sentence)
+        or plural_hearsay(brand_sentence, brand),
+        "이용 전언은 주변에서 본 사람들·보고 왔다는 사람 몇 명·다녀왔다는 사람 여럿처럼 복수 출처로 쓰세요. 직접 이용·효능 주장은 금지입니다",
+    )
     reaction = any(
         REACTION.search(sentence)
         for sentence in _sentences(plain)
@@ -221,7 +311,7 @@ def validate_comment(
         "reaction",
         "브랜드 앞에 시청자 반응",
         reaction,
-        "브랜드가 없는 문장에 나·내·저·제·우리·중·싶·있음? 같은 시청자 반응을 넣으세요. 영상 주장만 되풀이하지 마세요",
+        "브랜드가 없는 문장에 나·내·저·제·우리·중·싶·있음?·나였네·이 영상 안 봤지 같은 시청자 반응을 넣으세요. 영상 주장만 되풀이하지 마세요",
     )
     link, tag = bool(LINK.search(plain)), bool(HASHTAG.search(plain))
     add(
@@ -231,19 +321,14 @@ def validate_comment(
         ", ".join(x for x in [link and "링크 금지", tag and "해시태그 금지"] if x),
     )
 
-    fake = FORTUNE_USE.search(plain) or next(
-        (
-            m
-            for s in re.split(r"[.!?…\n]+", plain)
-            if brand in s and (m := FAKE_USE.search(s))
-        ),
-        None,
-    )
+    fake = _usage_violation(plain, brand)
     add(
         "fake",
         "이용 후기처럼 쓰지 않음",
         not fake,
-        f'{brand}을(를) 이용해 본 것처럼 읽힘 ("{fake[0]}")' if fake else "",
+        f'직접 이용해 본 것처럼 읽히거나 효능 주장처럼 읽힘 ("{fake[0]}"). 복수의 제삼자 전언만 허용하며 맞췄대·용하대·소름·후기·추천은 전언이어도 금지입니다'
+        if fake
+        else "",
     )
 
     foreign = "".join(dict.fromkeys(FOREIGN_SCRIPT.findall(text)))

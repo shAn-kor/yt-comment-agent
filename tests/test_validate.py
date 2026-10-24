@@ -25,6 +25,9 @@ def test_조건을_다_지키면_통과():
         "questions",
         "brand_context",
         "brand_position",
+        "wish_bridge",
+        "single_source",
+        "hearsay",
         "reaction",
         "link",
         "fake",
@@ -186,7 +189,7 @@ def test_detail이_포함된_긴_인용문도_차단():
 
 
 def test_입장과_자연스러운_근거_표현은_허용():
-    text = "나만 연락 빈도부터 줄면 마음 없는 거라고 생각함? 내 쪽은 운명원 가서 궁합이나 볼까 싶다"
+    text = "나만 연락 빈도부터 줄면 마음 없는 거라고 생각함? 내 인연은 언제 올지 운명원 가서 궁합이나 볼까 싶다"
     assert errors(text) == ""
     assert "상투적인 표현" not in errors(GOOD + " 공감은 가지만 내 생각은 좀 다름")
     assert "따옴표를 빼고" not in errors(GOOD + " ‘나’부터 생각할 일")
