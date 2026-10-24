@@ -60,7 +60,7 @@ def test_LLM_PROVIDER가_우선(monkeypatch):
 
 def test_이상한_LLM_PROVIDER는_오류(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "gpt")
-    with pytest.raises(ValueError, match="가능: claude, gemini"):
+    with pytest.raises(ValueError, match="가능: claude, codex, gemini"):
         llm.complete("p")
     assert llm.backend_name().startswith("설정 오류")
 

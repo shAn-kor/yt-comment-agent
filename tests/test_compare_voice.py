@@ -9,8 +9,12 @@ import pytest
 
 from agent.llm import ProviderError
 from scripts import compare_voice as comparison
-from tests.test_generate import CTX, RULES
+from tests.test_generate import CTX, RULES, candidate_json
 from tests.test_validate import GOOD
+
+
+def generation_response(prompt, payload):
+    return json.dumps(payload) if str(prompt) == "OLD" else candidate_json(payload)
 
 
 def context(video_id="allowedVid1"):
@@ -29,6 +33,7 @@ def context(video_id="allowedVid1"):
     "revision,file,names",
     [
         ("b53e4f7", "voice_baseline.py", ("build_prompt", "_prompt_text")),
+        ("50a3cf1", "shapes_baseline.py", ("build_prompt", "_prompt_text")),
         (
             "5a88e9a",
             "bridge_baseline.py",
@@ -63,8 +68,9 @@ def test_동결한_프롬프트_함수는_고정_커밋과_동일(revision, file
 
 def test_이전_프롬프트는_동결본을_사용():
     prompt = comparison.baseline_builder()(CTX, **RULES)
-    assert "2) stance" in prompt and "3) comment" in prompt and "40~80자" in prompt
-    assert "3) bridge" not in prompt
+    assert "3) bridge" in prompt and "4) comment" in prompt and "70~110자" in prompt
+    assert "다섯 흐름을 순서대로" in prompt and "후보 4개" not in prompt
+    assert comparison.BASE_REVISION == "50a3cf1"
     archive = comparison.baseline_builder("b53e4f7")(CTX, **RULES)
     assert "2) comment" in archive and "잘 본다던데" in archive
 
@@ -79,13 +85,14 @@ def test_비교는_각_버전_한번씩만_생성하고_버전은_key에만_저�
     def llm(prompt):
         calls.append(str(prompt))
         text = GOOD + " 잘 본다던데" if str(prompt) == "OLD" else GOOD
-        return json.dumps(
+        return generation_response(
+            prompt,
             {
                 "relevant": True,
                 "stance": "한줄요약",
                 "detail": "연락 빈도부터 줄",
                 "comment": text,
-            }
+            },
         )
 
     result = comparison.compare(
@@ -132,7 +139,9 @@ def test_호출_간격과_이전_댓글_200자_제한(tmp_path):
         SimpleNamespace(**RULES),
         tmp_path,
         old_builder=old_builder,
-        llm=lambda _: json.dumps({"detail": "연락 빈도부터 줄", "comment": GOOD}),
+        llm=lambda prompt: generation_response(
+            prompt, {"detail": "연락 빈도부터 줄", "comment": GOOD}
+        ),
         seed=1,
         delay=65,
         sleep=waits.append,
@@ -155,7 +164,9 @@ def test_5a_기준은_좋아요와_잘리지_않은_원본_댓글을_동일하�
         SimpleNamespace(**RULES),
         tmp_path,
         old_builder=old_builder,
-        llm=lambda _: json.dumps({"detail": "연락 빈도부터 줄", "comment": GOOD}),
+        llm=lambda prompt: generation_response(
+            prompt, {"detail": "연락 빈도부터 줄", "comment": GOOD}
+        ),
     )
     assert seen == [comments]
 
@@ -209,7 +220,9 @@ def test_빈_응답만_한번_재요청하고_공급자_모델_이력_보존(tmp
         calls.append(prompt)
         if len(calls) == 1:
             raise RuntimeError("Groq가 빈 답을 돌려줌")
-        return json.dumps({"detail": "연락 빈도부터 줄", "comment": GOOD})
+        return generation_response(
+            prompt, {"detail": "연락 빈도부터 줄", "comment": GOOD}
+        )
 
     result = comparison.compare(
         [context()],
@@ -259,7 +272,9 @@ def test_Groq는_짧은_프롬프트를_보냄(tmp_path):
 
     def llm(prompt):
         prompts.append(str(prompt))
-        return json.dumps({"detail": "연락 빈도부터 줄", "comment": GOOD})
+        return generation_response(
+            prompt, {"detail": "연락 빈도부터 줄", "comment": GOOD}
+        )
 
     comparison.compare(
         [{**context(), "transcript": "가" * 6000}],
@@ -272,6 +287,69 @@ def test_Groq는_짧은_프롬프트를_보냄(tmp_path):
     )
     [new_prompt] = [p for p in prompts if p != "OLD"]
     assert "가" * 5000 in new_prompt and "가" * 5001 not in new_prompt
+
+
+def test_Codex_단발_비교는_전체_프롬프트와_선택결과_메타데이터_보존(tmp_path):
+    prompts = []
+
+    def llm(prompt):
+        prompts.append(str(prompt))
+        return generation_response(
+            prompt, {"detail": "연락 빈도부터 줄", "comment": GOOD}
+        )
+
+    result = comparison.compare(
+        [{**context(), "transcript": "가" * 6000}],
+        SimpleNamespace(**RULES),
+        tmp_path,
+        old_builder=lambda *a, **k: "OLD",
+        llm=llm,
+        provider="codex",
+        model="gpt-6-luna",
+        transport="cli",
+        effort="low",
+        cli_path="/fake/codex",
+        empty_retries=0,
+    )
+    [new_prompt] = [p for p in prompts if p != "OLD"]
+    assert "가" * 6000 in new_prompt
+    drafts = result["rows"][0]["drafts"]
+    assert (
+        drafts["old"]["candidate_count"] == 1 and drafts["new"]["candidate_count"] == 4
+    )
+    assert len(drafts["new"]["candidates"]) == 4
+    assert len(prompts) == 2
+    assert all(
+        d["provider"] == "codex"
+        and d["model"] == "gpt-6-luna"
+        and d["effort"] == "low"
+        and d["transport"] == "cli"
+        and d["prompt_variant"] == "full"
+        and d["transcript_chars_sent"] == 6000
+        and d["attempts"] == 1
+        for d in drafts.values()
+    )
+
+
+def test_Codex_전용_옵션은_다른_공급자로_실행하지_않음(tmp_path, monkeypatch):
+    monkeypatch.setattr(comparison, "load_env", lambda: None)
+    monkeypatch.setattr(comparison, "load_config", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        comparison, "configured_model", lambda: ("claude", "other-model")
+    )
+    monkeypatch.setattr(
+        comparison,
+        "select_contexts",
+        lambda *a: pytest.fail("잘못된 전송 경로에서는 요청 금지"),
+    )
+    assert comparison.main(["--require-codex-cli", "--output", str(tmp_path)]) == 1
+
+
+def test_Codex_설정은_다른_API키와_무관하고_기본모델_유지(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "codex")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "unused-key")
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    assert comparison.configured_model() == ("codex", "gpt-6-luna")
 
 
 def test_공급자_모델_고정과_자동_대체_금지(monkeypatch):

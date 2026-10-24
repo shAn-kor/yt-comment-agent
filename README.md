@@ -19,16 +19,17 @@ uv run python scripts/login.py 유튜브1     # 일반 Chrome이 열린다. 테�
 
 선택: 프로젝트 폴더에 `.env` 파일을 만들면 아래 값을 읽는다.
 
-| 이름                 | 뜻                                                       |
-| -------------------- | -------------------------------------------------------- |
-| `LLM_PROVIDER`       | `claude` · `gemini` · `groq` · `openrouter`. 비우면 자동 |
-| `LLM_MODEL`          | 모델 이름. 비우면 아래 표의 기본 모델                    |
-| `ANTHROPIC_API_KEY`  | Claude API 키. 없으면 로컬 `claude` CLI                  |
-| `GEMINI_API_KEY`     | Gemini API 키                                            |
-| `GROQ_API_KEY`       | Groq API 키                                              |
-| `OPENROUTER_API_KEY` | OpenRouter API 키                                        |
-| `CHROME_PATH`        | Chrome 실행 파일 경로 (macOS 기본 경로가 아닐 때)        |
-| `PORT`               | 기본 4310                                                |
+| 이름                 | 뜻                                                                 |
+| -------------------- | ------------------------------------------------------------------ |
+| `LLM_PROVIDER`       | `claude` · `codex` · `gemini` · `groq` · `openrouter`. 비우면 자동 |
+| `LLM_MODEL`          | 모델 이름. 비우면 아래 표의 기본 모델                              |
+| `ANTHROPIC_API_KEY`  | Claude API 키. 없으면 로컬 `claude` CLI                            |
+| `GEMINI_API_KEY`     | Gemini API 키                                                      |
+| `GROQ_API_KEY`       | Groq API 키                                                        |
+| `OPENROUTER_API_KEY` | OpenRouter API 키                                                  |
+| `CODEX_CLI`          | Codex 실행 파일 경로 (기본 `codex`)                                |
+| `CHROME_PATH`        | Chrome 실행 파일 경로 (macOS 기본 경로가 아닐 때)                  |
+| `PORT`               | 기본 4310                                                          |
 
 ### AI 고르기
 
@@ -39,6 +40,7 @@ uv run python scripts/login.py 유튜브1     # 일반 Chrome이 열린다. 테�
 | `gemini`       | `gemini-3.5-flash`           | 무료 등급 있음. 무료 등급 입력은 Google 제품 개선에 쓰인다 | [Google AI Studio](https://aistudio.google.com/apikey)에서 키 발급 |
 | `groq`         | `openai/gpt-oss-120b`        | 무료 플랜: 분당 30회, 하루 1,000회, 분당 8,000토큰         | [Groq 콘솔](https://console.groq.com/keys)에서 키 발급             |
 | `openrouter`   | `google/gemma-4-31b-it:free` | `:free` 모델은 무료. 하루 요청 수 제한 있음                | [OpenRouter](https://openrouter.ai/settings/keys)에서 키 발급      |
+| `codex`        | `gpt-6-luna`                 | Codex CLI 로그인 사용. 비용·한도는 계정 설정에 따름        | 설치된 Codex CLI (`low` 추론, 임시 폴더·읽기 전용)                 |
 | `claude`       | `claude-sonnet-5-5`          | 유료 API 키 또는 `claude` CLI 로그인                       | 기존 방식 그대로                                                   |
 
 예: Gemini 무료 키로 돌리기
@@ -93,7 +95,7 @@ uv run pytest                   # 검사기·운영 규칙·API 테스트
 agent/server.py     FastAPI 서버와 API
 agent/youtube.py    채널 RSS(실패 시 yt-dlp), yt-dlp 라이브러리 (메타·자막·인기 댓글·검색)
 agent/generate.py   프롬프트, 생성 → 검사 → 이유를 붙여 재생성 (최대 3회)
-agent/llm.py        AI 연결 (Claude · Gemini · Groq · OpenRouter)
+agent/llm.py        AI 연결 (Codex CLI · Claude · Gemini · Groq · OpenRouter)
 agent/validate.py   댓글 검증기
 agent/rules.py      운영 규칙
 agent/store.py      SQLite 기록
@@ -112,13 +114,13 @@ tests/              pytest
 
 ## 댓글 말투 비교
 
-초안은 영상에 대한 내 반응에서 시작해, 영상이 답해 주지 못하는 내 연애 질문으로 이어진다. 일반적인 사주·궁합 관심과 다른 시청자에게 묻는 말을 먼저 두고, 브랜드는 마지막에 잠정적인 인상으로 언급한다. 목표는 70~110자다 (설정의 40~120자 제한은 유지). 검사기는 상투어·따옴표 인용·반응 없는 요약·반복되는 브랜드 문장을 막는다.
+반응·연결 질문·사주 관심·시청자 질문·브랜드는 순서가 아니라 메뉴다. 구체적인 내 반응과 늦게 나오는 브랜드를 포함해 2~3개 박자만 쓴다. 한 번에 서로 다른 후보 4개를 만들고, 통과 후보 중 이전 댓글과 끝문장·호흡이 덜 비슷한 것을 고른다. 물음표는 전각까지 합쳐 최대 하나다. 설정의 40~120자 제한과 기존 검사도 유지한다.
 
 ```bash
-LLM_PROVIDER=groq LLM_MODEL=openai/gpt-oss-120b uv run python scripts/compare_voice.py --count 8 --delay 65 --baseline 5a88e9a --output "$HOME/ai-workspace/scratch/comment-research/blind2-groq"
+LLM_PROVIDER=codex LLM_MODEL=gpt-6-luna uv run python scripts/compare_voice.py --require-codex-cli --empty-retries 0 --count 8 --delay 5 --baseline 50a3cf1 --output "$HOME/ai-workspace/scratch/comment-research/blind3"
 ```
 
-한 공급자·모델로 이전·새 프롬프트를 한 번씩 생성하고, 위 예시는 `~/ai-workspace/scratch/comment-research/blind2-groq/`에 블라인드 비교표와 버전 키를 저장한다. 공급자 자동 대체는 쓰지 않는다. 각 초안의 공급자·모델과 빈 응답의 한 차례 추가 요청을 기록한다. `--contexts`와 `--comments`로 저장된 영상·댓글 자료를 재사용할 수 있다. 게시 기능은 없다. 검사 결과는 품질 선호도 점수를 대신하지 않는다.
+위 예시는 Codex CLI의 `gpt-6-luna`, `low` 추론에 고정한다. 이전 프롬프트는 초안 하나, 새 프롬프트는 후보 4개와 코드 선택을 사용한다. 양쪽 모두 한 번만 호출하며 검사 피드백으로 다시 쓰지 않는다. 결과는 `~/ai-workspace/scratch/comment-research/blind3/`에 저장하고, 공급자·모델·추론 수준·CLI 경로·후보 검사 결과를 기록한다. Codex는 `--ignore-user-config`·`--ignore-rules`와 빈 임시 폴더를 사용한다. 읽기 전용·임시 실행 후 최종 출력 파일만 읽으며 인증은 기존 로그인을 쓴다. 호스트가 붙이는 기본 문맥까지 없애는 것은 아니다. `--contexts`와 `--comments`로 저장된 영상·댓글 자료를 재사용할 수 있다. 게시 기능은 없다. 검사 결과는 품질 선호도 점수를 대신하지 않는다.
 
 ## 알려진 한계
 

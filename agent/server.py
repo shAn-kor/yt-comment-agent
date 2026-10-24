@@ -292,6 +292,8 @@ async def draft(body: DraftIn):
         "concern": d["concern"],
         "stance": d.get("stance", ""),
         "bridge": d.get("bridge", ""),
+        "selected_index": d.get("selected_index", 0),
+        "candidates": d.get("candidates", []),
         "detail": d["detail"],
         "comment": d["comment"],
         "attempts": d["attempts"],

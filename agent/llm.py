@@ -1,6 +1,6 @@
 """프롬프트 하나를 보내고 글을 받는다.
 
-LLM_PROVIDER로 고른다: claude | gemini | groq | openrouter.
+LLM_PROVIDER로 고른다: claude | codex | gemini | groq | openrouter.
 비어 있으면 키가 있는 곳 → claude CLI 순서로 고르고, 둘 다 없으면 Gemini(무료 키 안내).
 """
 
@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 
@@ -49,7 +50,10 @@ OPENAI_COMPATIBLE = {
         "google/gemma-4-31b-it:free",
     ),
 }
-PROVIDERS = ("claude", *OPENAI_COMPATIBLE)
+PROVIDERS = ("claude", "codex", *OPENAI_COMPATIBLE)
+CODEX_MODEL = "gpt-6-luna"
+CODEX_EFFORT = "low"
+CODEX_TIMEOUT = 180
 
 # Gemini 무료 한도(하루 20회)가 차거나 서버가 붐비면 Groq로 넘긴다.
 # Groq 무료는 분당 8K 토큰이라 자막을 줄인 프롬프트(Prompt.short)를 보낸다.
@@ -100,6 +104,8 @@ def backend_name() -> str:
         name = provider_name()
     except ValueError as e:
         return f"설정 오류 · {e}"
+    if name == "codex":
+        return f"Codex CLI · {_model(CODEX_MODEL)} · {CODEX_EFFORT}"
     if name == "claude":
         if os.environ.get("ANTHROPIC_API_KEY"):
             return f"Claude API · {_model('claude-sonnet-5-5')}"
@@ -120,6 +126,8 @@ def _has_fallback(name: str) -> bool:
 
 def complete(prompt: str) -> str:
     name = provider_name()
+    if name == "codex":
+        return _codex_cli(prompt)
     if name == "claude":
         if key := os.environ.get("ANTHROPIC_API_KEY"):
             return _claude_api(prompt, key)
@@ -286,7 +294,7 @@ def _claude_api(prompt: str, key: str) -> str:
         headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
         json={
             "model": _model("claude-sonnet-5-5"),
-            "max_tokens": 1024,
+            "max_tokens": 4096,  # 댓글 후보 네 개의 JSON 응답 여유
             "messages": [{"role": "user", "content": prompt}],
         },
         timeout=120,
@@ -308,6 +316,7 @@ def _claude_cli(prompt: str) -> str:
         # 프로젝트 지침을 읽지 않도록 임시 폴더에서 실행
         out = subprocess.run(
             cmd,
+            check=False,
             input=prompt,
             capture_output=True,
             text=True,
@@ -321,3 +330,87 @@ def _claude_cli(prompt: str) -> str:
     if out.returncode != 0:
         raise RuntimeError(f"claude CLI 오류 ({out.returncode}): {out.stderr[-300:]}")
     return out.stdout
+
+
+def _codex_cli(prompt: str) -> str:
+    """도구 없는 임시 작업 폴더에서 실행하고 -o의 최종 답만 읽는다."""
+    with tempfile.TemporaryDirectory(prefix="yt-codex-") as directory:
+        output = Path(directory) / "answer.txt"
+        cmd = [
+            os.environ.get("CODEX_CLI", "codex"),
+            "exec",
+            "-m",
+            _model(CODEX_MODEL),
+            "-c",
+            f'model_reasoning_effort="{CODEX_EFFORT}"',
+            "-c",
+            "project_doc_max_bytes=0",
+            "--ignore-user-config",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--ephemeral",
+            "--ignore-rules",
+            "-C",
+            directory,
+        ]
+        for feature in (
+            "shell_tool",
+            "unified_exec",
+            "multi_agent",
+            "multi_agent_v2",
+            "apps",
+            "plugins",
+            "remote_plugin",
+            "browser_use",
+            "computer_use",
+            "image_generation",
+            "skill_search",
+        ):
+            cmd += ["--disable", feature]
+        cmd += ["-o", str(output), "-"]
+        try:
+            result = subprocess.run(
+                cmd,
+                input=str(prompt),
+                capture_output=True,
+                text=True,
+                cwd=directory,
+                timeout=CODEX_TIMEOUT,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(f"Codex CLI 시간 초과 ({CODEX_TIMEOUT}초)") from error
+        except OSError as error:
+            raise RuntimeError(
+                "Codex CLI 실행 실패: CODEX_CLI 경로와 설치 상태를 확인하세요"
+            ) from error
+        if result.returncode != 0:
+            # stderr에는 지침·추론·인증 정보가 섞일 수 있어 전문을 노출하지 않는다.
+            message = result.stderr.lower()
+            if any(
+                word in message
+                for word in (
+                    "unauthorized",
+                    "authentication",
+                    "not logged in",
+                    "sign in",
+                    "401",
+                )
+            ):
+                reason = "인증 실패 — codex login 상태를 확인하세요"
+            elif any(
+                word in message
+                for word in ("quota", "usage limit", "rate limit", "429")
+            ):
+                reason = "사용 한도 초과 — Codex 계정의 한도와 재시도 시각을 확인하세요"
+            else:
+                reason = "실행 실패 — 실행 파일·모델·연결 상태를 확인하세요"
+            raise RuntimeError(f"Codex CLI {reason} (종료 코드 {result.returncode})")
+        try:
+            answer = output.read_text(encoding="utf-8").strip()
+        except OSError as error:
+            raise RuntimeError("Codex CLI 최종 답변 파일을 읽지 못함") from error
+        if not answer:
+            raise RuntimeError("Codex CLI가 빈 답을 돌려줌")
+        return answer

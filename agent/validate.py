@@ -183,6 +183,15 @@ def validate_comment(
     add("brand", f'"{brand}" 한 번', n == 1, brand_note)
 
     plain = unicodedata.normalize("NFKC", text)
+    questions = plain.count("?")
+    add(
+        "questions",
+        "물음표는 최대 한 개",
+        questions <= 1,
+        f"물음표가 {questions}개입니다. 질문은 하나만 남기고 나머지는 반응이나 단정으로 바꾸세요"
+        if questions > 1
+        else "",
+    )
     add(
         "brand_context",
         f"{brand}에 연애사주 맥락",

@@ -10,6 +10,7 @@ import json
 import os
 import random
 import re
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -21,15 +22,36 @@ if str(ROOT) not in sys.path:
 import httpx
 
 from agent.config import load_config, load_env
-from agent.generate import build_prompt, parse_json, source_text, voice_comments
-from agent.llm import OPENAI_COMPATIBLE, backend_name, complete, provider_name
+from agent.generate import (
+    SHORT_TRANSCRIPT_LIMIT,
+    TRANSCRIPT_LIMIT,
+    build_prompt,
+    parse_candidates,
+    parse_json,
+    select_candidates,
+    source_text,
+    voice_comments,
+)
+from agent.llm import (
+    CODEX_EFFORT,
+    CODEX_MODEL,
+    OPENAI_COMPATIBLE,
+    backend_name,
+    complete,
+    provider_name,
+)
 from agent.validate import validate_comment
 from agent.youtube import fetch_channel_feed, get_video_context
 from scripts.bridge_baseline import build_prompt as bridge_baseline_prompt
+from scripts.shapes_baseline import build_prompt as shapes_baseline_prompt
 from scripts.voice_baseline import build_prompt as original_baseline_prompt
 
-BASE_REVISION = "5a88e9a"
-BASELINES = {"b53e4f7": original_baseline_prompt, "5a88e9a": bridge_baseline_prompt}
+BASE_REVISION = "50a3cf1"
+BASELINES = {
+    "b53e4f7": original_baseline_prompt,
+    "5a88e9a": bridge_baseline_prompt,
+    "50a3cf1": shapes_baseline_prompt,
+}
 RESEARCH = Path.home() / "ai-workspace/scratch/comment-research"
 
 
@@ -117,6 +139,8 @@ def configured_model() -> tuple[str, str]:
         raise ValueError(
             "비교 중 공급자가 섞이지 않도록 자동 대체가 없는 공급자로 고정하세요 (예: LLM_PROVIDER=groq)"
         )
+    if name == "codex":
+        return name, os.environ.get("LLM_MODEL") or CODEX_MODEL
     if name in OPENAI_COMPATIBLE:
         provider = OPENAI_COMPATIBLE[name]
         if not os.environ.get(provider.key_env):
@@ -144,6 +168,7 @@ def save_sheet(output: Path, record: dict) -> None:
         "영상 내용에 맞고 광고 말투가 덜한 쪽을 고른다. 검증 결과와 버전 정보는 key.json에 따로 저장한다.",
         "각 초안은 단발 생성(single-shot)이며, 검사 결과를 붙여 다시 쓰는 재작성 루프는 사용하지 않았다. 영상 자료는 실제 자막 또는 장면 설명과 영상 설명을 포함한다.",
         "각 버전에는 그 버전에서 앞서 만든 초안을 참고 이력으로 넘겼다. 두 버전의 이력은 섞지 않았다.",
+        "한쪽은 단일 초안, 다른 쪽은 한 응답의 네 후보를 검사해 반복이 적은 통과 후보를 골랐다. 통과 후보가 없으면 실패 초안을 그대로 남겼으며 재작성하지 않았다.",
         "",
     ]
     if record.get("provider"):
@@ -208,6 +233,10 @@ def compare(
     baseline_revision=BASE_REVISION,
     provider="",
     model="",
+    transport="",
+    effort="",
+    cli_path="",
+    empty_retries=1,
 ) -> dict:
     if (output / "key.json").exists() or (output / "sheet.md").exists():
         raise ValueError("비교 결과가 이미 있음. 다른 --output 폴더를 지정하세요")
@@ -219,6 +248,11 @@ def compare(
         "backend": backend,
         "provider": provider,
         "model": model,
+        "transport": transport,
+        "effort": effort,
+        "cli_path": cli_path,
+        "new_candidate_count": 4,
+        "empty_retry_limit": empty_retries,
         "prompt_variant": "short" if provider == "groq" else "full",
         "seed": seed,
         "delay_seconds": delay,
@@ -248,17 +282,26 @@ def compare(
         rng.shuffle(versions)  # generation order is independent of blind display order
         for version in versions:
             errors = []
-            for attempt in (1, 2):  # only empty answers get one extra request
+            for attempt in range(1, empty_retries + 2):
                 if generated and delay:
                     sleep(delay)
                 generated += 1
                 print(
-                    f"generate {ctx['videoId']} {version} attempt={attempt} provider={provider} model={model}",
+                    f"generate {ctx['videoId']} {version} attempt={attempt} provider={provider} model={model} effort={effort} transport={transport}",
                     flush=True,
                 )
                 metadata = {
                     "provider": provider,
                     "model": model,
+                    "transport": transport,
+                    "effort": effort,
+                    "cli_path": cli_path,
+                    "transcript_chars_sent": min(
+                        SHORT_TRANSCRIPT_LIMIT
+                        if provider == "groq"
+                        else TRANSCRIPT_LIMIT,
+                        len(ctx.get("transcript", "")),
+                    ),
                     "prompt_variant": record["prompt_variant"],
                     "attempts": attempt,
                     "previous_count": len(histories[version]),
@@ -286,16 +329,27 @@ def compare(
                     raw = llm(prompt)
                     if not str(raw).strip():
                         raise RuntimeError("LLM이 빈 답을 돌려줌")
-                    parsed = parse_json(raw)
-                    validation = validate_comment(
-                        parsed["comment"],
-                        source=source_text(ctx),
-                        detail=parsed["detail"],
-                        brand=rules.brand,
-                        min=rules.min,
-                        max=rules.max,
-                        previous=histories[version],
-                    )
+                    if version == "new":
+                        parsed = select_candidates(
+                            parse_candidates(raw),
+                            ctx,
+                            brand=rules.brand,
+                            min=rules.min,
+                            max=rules.max,
+                            previous=histories[version],
+                        )
+                        validation = parsed["validation"]
+                    else:
+                        parsed = parse_json(raw)
+                        validation = validate_comment(
+                            parsed["comment"],
+                            source=source_text(ctx),
+                            detail=parsed["detail"],
+                            brand=rules.brand,
+                            min=rules.min,
+                            max=rules.max,
+                            previous=histories[version],
+                        )
                     if not parsed["relevant"]:
                         validation["ok"] = False
                         validation["errors"].append(
@@ -306,6 +360,9 @@ def compare(
                         **metadata,
                         "validation": validation,
                         "chars": validation["chars"],
+                        "candidate_count": len(parsed.get("candidates", []))
+                        if version == "new"
+                        else 1,
                         "error_history": list(errors),
                     }
                     if parsed["comment"] and parsed["relevant"]:
@@ -334,7 +391,7 @@ def compare(
                     if daily_quota(message):
                         record["stop_reason"] = message
                     retry_empty = (
-                        attempt == 1
+                        attempt <= empty_retries
                         and not record["stop_reason"]
                         and bool(re.search(r"빈\s*답|empty", message, re.IGNORECASE))
                     )
@@ -354,7 +411,9 @@ def main(argv=None) -> int:
         "--contexts", type=Path, help="cached get_video_context JSON list"
     )
     parser.add_argument("--comments", type=Path, default=RESEARCH / "comments.jsonl")
-    parser.add_argument("--output", type=Path, default=RESEARCH / "blind2")
+    parser.add_argument("--output", type=Path, default=RESEARCH / "blind3")
+    parser.add_argument("--require-codex-cli", action="store_true")
+    parser.add_argument("--empty-retries", type=int, choices=(0, 1), default=0)
     parser.add_argument("--baseline", choices=tuple(BASELINES), default=BASE_REVISION)
     parser.add_argument("--seed", type=int)
     parser.add_argument(
@@ -373,6 +432,24 @@ def main(argv=None) -> int:
     config = load_config()
     try:
         provider, model = configured_model()
+        transport = (
+            "cli"
+            if provider == "codex"
+            or (provider == "claude" and not os.environ.get("ANTHROPIC_API_KEY"))
+            else "api"
+        )
+        effort = CODEX_EFFORT if provider == "codex" else ""
+        cli_path = (
+            shutil.which(os.environ.get("CODEX_CLI", "codex"))
+            if provider == "codex"
+            else ""
+        )
+        if args.require_codex_cli and (
+            provider != "codex" or transport != "cli" or not cli_path
+        ):
+            raise ValueError(
+                "이 비교는 Codex CLI 경로가 있는 LLM_PROVIDER=codex 설정이 필요함"
+            )
         contexts = select_contexts(config, args.count, args.contexts)
         attach_likes(contexts, args.comments)
         result = compare(
@@ -386,6 +463,10 @@ def main(argv=None) -> int:
             baseline_revision=args.baseline,
             provider=provider,
             model=model,
+            transport=transport,
+            effort=effort,
+            cli_path=cli_path or "",
+            empty_retries=args.empty_retries,
         )
     except (
         RuntimeError,

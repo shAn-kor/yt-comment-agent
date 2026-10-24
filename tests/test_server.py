@@ -13,6 +13,7 @@ from agent.config import Profile
 from agent.generate import draft_comment
 from agent.store import Store
 from tests.test_validate import GOOD, SOURCE
+from tests.test_generate import candidate_json
 
 ALLOWED = server.config.channels[0].id
 
@@ -112,7 +113,7 @@ def test_초안_API는_선택한_입장도_반환(client, monkeypatch):
         lambda ctx, **kw: draft_comment(
             ctx,
             **kw,
-            llm=lambda _: json.dumps(
+            llm=lambda _: candidate_json(
                 {
                     "relevant": True,
                     "stance": "한줄요약",
@@ -127,6 +128,7 @@ def test_초안_API는_선택한_입장도_반환(client, monkeypatch):
     r = client.post("/api/draft", json={"videoId": "allowedVid1"})
     assert r.status_code == 200 and r.json()["stance"] == "한줄요약"
     assert r.json()["bridge"] == "계속 기다려도 될까?"
+    assert r.json()["selected_index"] == 0 and len(r.json()["candidates"]) == 4
 
 
 def test_고친_글_다시_검사(client):
@@ -134,7 +136,7 @@ def test_고친_글_다시_검사(client):
         "/api/validate",
         json={"videoId": "allowedVid1", "comment": GOOD, "detail": "연락 빈도부터 줄"},
     ).json()
-    assert v["ok"] and len(v["checks"]) == 13
+    assert v["ok"] and len(v["checks"]) == 14
 
 
 def test_테스트_모드면_지정_채널에도_게시_차단(client):

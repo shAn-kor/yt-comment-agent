@@ -21,6 +21,7 @@ def test_조건을_다_지키면_통과():
     assert [c["key"] for c in v["checks"]] == [
         "length",
         "brand",
+        "questions",
         "brand_context",
         "brand_position",
         "reaction",
@@ -39,6 +40,25 @@ def test_글자_수_범위():
     assert "글자 수" in errors("운명원 궁금하다")
     assert "글자 수" in errors(GOOD + GOOD)
     assert count_chars("ㅠㅠ 가나") == 5
+
+
+@pytest.mark.parametrize(
+    "marks,allowed",
+    [
+        ("", True),
+        ("?", True),
+        ("？", True),
+        ("??", False),
+        ("?？", False),
+        ("？？", False),
+    ],
+)
+def test_물음표는_전각까지_합쳐_최대_하나(marks, allowed):
+    v = validate_comment(GOOD + marks, **OPTS)
+    check = next(c for c in v["checks"] if c["key"] == "questions")
+    assert check["ok"] is allowed
+    if not allowed:
+        assert "질문은 하나만" in check["note"] and check["note"] in v["errors"]
 
 
 def test_브랜드는_정확히_한_번():
