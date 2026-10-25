@@ -195,6 +195,14 @@ def _has_wish_bridge(text: str, brand: str) -> bool:
     return False
 
 
+def _usage_subject_prefix(prefix: str) -> str:
+    """A reporter's personal wish is not the subject of a later people-report."""
+    return re.split(
+        r"주변(?:에서|에)|여러\s*사람(?:들)?(?:이|은|도|에게|한테)?(?![가-힣])|여럿(?:이|은|도|에게|한테)?(?![가-힣])",
+        prefix,
+    )[-1]
+
+
 def _usage_violation(text: str, brand: str):
     efficacy = EFFICACY.search(text)
     if efficacy:
@@ -207,7 +215,9 @@ def _usage_violation(text: str, brand: str):
             sentence = REPORTED_USE.sub(
                 lambda match: (
                     match.group()
-                    if FIRST_SUBJECT.search(original[: match.start()])
+                    if FIRST_SUBJECT.search(
+                        _usage_subject_prefix(original[: match.start()])
+                    )
                     else " "
                 ),
                 sentence,
