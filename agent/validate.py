@@ -67,6 +67,12 @@ HEARSAY_END = re.compile(
 )
 PLURAL_TALK = re.compile(
     r"(?:주변|여럿|여러\s*사람).{0,40}얘기(?:\s*(?:가|는|도)?\s*(?:많이|자주)\s*(?:하|들리)|(?:하는|한)\s*사람\s*(?:들|(?:이\s*)?(?:몇\s*명|여럿|여러\s*명)))"
+    # 복수 표현이 뒤에 오는 어순: "운명원 얘기하는 사람 여럿 있던데"
+    r"|얘기\s*(?:하는|한)\s*사람\s*(?:들(?:이|은|도)?(?![가-힣])|(?:이\s*)?(?:몇\s*명|여럿|여러\s*명))"
+)
+# 영상 속 인물의 관계는 시청자 자신의 바람이 아니다.
+OTHERS_WISH = re.compile(
+    r"영상\s*속|(?<![가-힣])두\s*사람|(?<![가-힣])저\s*둘|(?<![가-힣])둘이|출연자|주인공|그\s*커플"
 )
 FIRST_SUBJECT = re.compile(r"(?<![가-힣])(?:나|저)(?:는|도|가)?(?![가-힣])|내가|제가")
 WISH_ENDING_SIMILARITY = 0.7
@@ -187,9 +193,13 @@ def _has_wish_bridge(text: str, brand: str) -> bool:
                 candidate,
                 maxsplit=1,
             )[0]
-            if WISH_BRIDGE.search(own_clause) and re.search(
-                r"궁금|싶|인지|는지|일지|올지|될지|다를지|이어질지|만날지|될까|맞을까|일까|올까|문제",
-                own_clause,
+            if (
+                WISH_BRIDGE.search(own_clause)
+                and not OTHERS_WISH.search(own_clause)
+                and re.search(
+                    r"궁금|싶|인지|는지|일지|올지|될지|다를지|이어질지|만날지|될까|맞을까|일까|올까|려나|문제",
+                    own_clause,
+                )
             ):
                 return True
     return False
@@ -204,7 +214,11 @@ def _usage_subject_prefix(prefix: str) -> str:
 
 
 def _usage_violation(text: str, brand: str):
-    efficacy = EFFICACY.search(text)
+    # 효과 주장은 브랜드 바로 앞 문장부터 끝까지 본다.
+    # 그보다 앞의 내 상황 문장("시간을 맞춘다")은 브랜드 얘기가 아니다.
+    sentences = _sentences(text)
+    first = next((i for i, s in enumerate(sentences) if brand in s), len(sentences))
+    efficacy = EFFICACY.search(" ".join(sentences[max(0, first - 1) :]))
     if efficacy:
         return efficacy
     safe = []
