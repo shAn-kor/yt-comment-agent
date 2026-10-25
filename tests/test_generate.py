@@ -307,6 +307,33 @@ def test_후보_배열_파싱과_관련성_판정():
 
 
 @pytest.mark.parametrize(
+    "raw", ['[{"relevant":false}]', '[{"relevant": false}, {"relevant": false}]']
+)
+def test_배열에_담긴_거절도_관련_없음으로_인정(raw):
+    # Codex는 거절을 배열 하나에 담아 답하는 경우가 많다 (2026-10-25 실측)
+    parsed = parse_candidates(raw)
+    assert len(parsed) == 1 and parsed[0]["relevant"] is False
+
+
+def test_배열에_담긴_거절로_초안을_거절():
+    ctx = {
+        **CTX,
+        "title": "IMG 0978",
+        "transcript": "",
+        "scene": "흰 강아지가 풀밭을 걷는다.",
+    }
+    calls = []
+
+    def fake_llm(prompt):
+        calls.append(prompt)
+        return '[{"relevant":false}]'
+
+    with pytest.raises(UnrelatedVideo):
+        draft_comment(ctx, **RULES, llm=fake_llm)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
     "raw",
     [
         "[]",

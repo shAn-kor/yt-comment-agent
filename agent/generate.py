@@ -195,6 +195,15 @@ def parse_candidates(raw: str) -> list[dict]:
     value = _payload(raw)
     if isinstance(value, dict) and value.get("relevant") is False:
         return [_candidate(value)]
+    # Codex는 거절 객체를 배열에 담아 답하기도 한다: [{"relevant": false}]
+    if (
+        isinstance(value, list)
+        and value
+        and all(
+            isinstance(item, dict) and item.get("relevant") is False for item in value
+        )
+    ):
+        return [_candidate(value[0])]
     if (
         not isinstance(value, list)
         or len(value) != 4
