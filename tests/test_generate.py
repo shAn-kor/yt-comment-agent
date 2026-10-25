@@ -116,9 +116,8 @@ def test_검증_실패_시_이유를_붙여_다시_생성():
 
 def test_브랜드_맥락_없으면_구체적인_안내로_재생성():
     prompts = []
-    without_context = GOOD.replace(
-        "운명원에서 내 인연은 언제 오는지 궁금하다",
-        "운명원도 궁금해지네요",
+    without_context = (
+        "확신이 없으면 연락 빈도부터 줄인다는 말에 나도 멈칫함. 운명원도 궁금해지네요"
     )
 
     def fake_llm(prompt):
@@ -263,7 +262,7 @@ def test_장면_설명도_detail_검사_근거():
                 "relevant": True,
                 "concern": "연인의 연락이 줄어 불안한 고민",
                 "detail": "서로 손을 잡고",
-                "comment": "서로 손을 잡고 걷는데도 나만 불안한가 싶네요. 내 인연은 어떨지 운명원 연애사주도 궁금해지네요.",
+                "comment": "서로 손을 잡고 걷는데도 나만 불안한가 싶네요. 내 인연은 어떨지 궁금함. 주변에서 운명원 연애사주 얘기 많이 하던데",
             }
         ),
     )
@@ -374,8 +373,8 @@ def test_문장_호흡_유사도는_문장수_질문위치_길이버킷을_봄()
 def test_통과_후보_중_반복점수가_낮은_것을_선택하고_동점은_원래순서():
     comments = [
         GOOD,
-        "나만 연락 빈도부터 줄면 이 사람이랑 맞는지 궁금함. 운명원 연애사주 얘기는 들어본 사람?",
-        "연락 빈도부터 줄면 나도 불안한가 봄. 이 사람이랑 궁합은 맞을까? 운명원은 좀 더 알아보려 함",
+        "나만 연락 빈도부터 줄면 이 사람이랑 맞는지 궁금함. 요즘 주변에서 운명원 연애사주 얘기 많이 하던데",
+        "연락 빈도부터 줄면 나도 불안한가 봄. 이 사람이랑 궁합은 맞을까? 운명원 궁합 본 사람들 얘기가 들리더라",
         "짧음",
     ]
     candidates = [
@@ -397,9 +396,16 @@ def test_통과_후보_중_반복점수가_낮은_것을_선택하고_동점은_
     assert len(passing) == 3
     expected = min(
         passing,
-        key=lambda c: (c["diversity"]["score"], c["diversity"]["overall"], c["index"]),
+        key=lambda c: (
+            c["register"]["polite_endings"] + c["register"]["counseling"],
+            c["register"]["length_excess"],
+            not c["plural_hearsay"],
+            c["diversity"]["score"],
+            c["diversity"]["overall"],
+            c["index"],
+        ),
     )
-    assert result["selected_index"] == expected["index"] == 2
+    assert result["selected_index"] == expected["index"]
     tied = select_candidates([candidates[0]] * 4, CTX, **RULES)
     assert tied["selected_index"] == 0
 

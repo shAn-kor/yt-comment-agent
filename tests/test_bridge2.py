@@ -143,7 +143,10 @@ def test_결과_바람은_직전_또는_브랜드_문장에서_확인(wish):
 @pytest.mark.parametrize("phrase", ["들어본", "들어 본", "알아본", "물어 본", "찾아본"])
 def test_들은_적_있냐는_질문은_이용_전언이_아님(phrase):
     result = checked(f"운명원 연애사주 얘기는 {phrase} 사람?")
-    assert check(result, "hearsay")["ok"] and check(result, "fake")["ok"]
+    assert not check(result, "hearsay")[
+        "ok"
+    ]  # an audience question alone is not social proof
+    assert check(result, "fake")["ok"]
 
 
 def test_먼_앞문장의_바람만으로는_부족():

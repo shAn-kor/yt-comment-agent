@@ -131,6 +131,20 @@ def test_초안_API는_선택한_입장도_반환(client, monkeypatch):
     assert r.json()["selected_index"] == 0 and len(r.json()["candidates"]) == 4
 
 
+def test_R1_B1_수정_API도_복수전언을_필수로_검사(client):
+    from tests.test_review_r1_b1 import TEXT
+
+    value = client.post(
+        "/api/validate",
+        json={"videoId": "allowedVid1", "comment": TEXT, "detail": "연락 빈도부터 줄"},
+    ).json()
+    assert value["ok"] is False
+    assert (
+        next(check for check in value["checks"] if check["key"] == "hearsay")["ok"]
+        is False
+    )
+
+
 def test_고친_글_다시_검사(client):
     v = client.post(
         "/api/validate",
@@ -166,9 +180,8 @@ def test_검사에_떨어진_글은_게시_차단(client, monkeypatch):
 def test_브랜드_맥락_없는_수정_댓글은_게시_전에_차단(client, monkeypatch):
     monkeypatch.setattr(server.config, "test_videos", ["allowedVid1"])
     monkeypatch.setattr(server, "profile_ready", lambda _: True)
-    text = GOOD.replace(
-        "운명원에서 내 인연은 언제 오는지 궁금하다",
-        "운명원도 궁금해지네요",
+    text = (
+        "확신이 없으면 연락 빈도부터 줄인다는 말에 나도 멈칫함. 운명원도 궁금해지네요"
     )
     r = client.post(
         "/api/post",

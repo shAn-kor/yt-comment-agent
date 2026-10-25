@@ -327,7 +327,6 @@ def validate_comment(
         "브랜드로 시작하지 말고 마지막 문장 또는 댓글의 뒤쪽 35%에 브랜드를 넣으세요",
     )
     brand_sentence = _brand_sentence(plain, brand)
-    usage_sentence = re.sub(r"(?:들어|물어|알아|찾아)\s*본", " ", brand_sentence)
     add(
         "wish_bridge",
         "내 상황의 풀리지 않은 바람",
@@ -343,9 +342,8 @@ def validate_comment(
     add(
         "hearsay",
         "이용 전언은 복수 출처만",
-        not REPORTED_USE.search(usage_sentence)
-        or plural_hearsay(brand_sentence, brand),
-        "이용 전언은 주변에서 본 사람들·보고 왔다는 사람 몇 명·다녀왔다는 사람 여럿처럼 복수 출처로 쓰세요. 직접 이용·효능 주장은 금지입니다",
+        plural_hearsay(brand_sentence, brand),
+        "브랜드에는 주변에서 본 사람들·보고 왔다는 사람 몇 명·다녀왔다는 사람 여럿·얘기하는 사람 여럿처럼 복수 전언이 반드시 필요합니다. 전언 없는 관심 표현·직접 이용·효능 주장은 금지입니다",
     )
     reaction = any(
         REACTION.search(sentence)
