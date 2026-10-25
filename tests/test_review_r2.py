@@ -86,3 +86,23 @@ def test_R3_named_third_party_pair_is_not_a_personal_wish():
 def test_R3_personal_wish_with_others_mentioned_passes(text):
     result = validate_comment(text, **OPTS)
     assert result["ok"] is True, result["errors"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "연락 빈도부터 줄이라는 말에 나도 멈칫함. 이번엔 커플이 될지 궁금함. 주변에서 운명원 궁합 본 사람들 꽤 있던데",
+        "연락 빈도부터 줄이라는 영상이 추천에 떠서 나도 멈칫함. 내 인연은 언제 올지 궁금함. 주변에서 운명원 궁합 본 사람들 꽤 있던데",
+        "연락 빈도부터 줄이라는데 나만 늘 시간을 억지로 맞춘다는 게 지침. 이 사람이랑 인연인지 궁금함. 주변에서 운명원 궁합 본 사람들 꽤 있던데",
+    ],
+)
+def test_R4_legitimate_comments_pass(text):
+    result = validate_comment(text, **OPTS)
+    assert result["ok"] is True, result["errors"]
+
+
+def test_R4_wedding_date_accuracy_claim_is_rejected():
+    text = "연락 빈도부터 줄이라는 말에 나도 멈칫함. 미래 결혼 날짜를 잘 맞힌다는 곳이 있다던데 내 인연은 언제 올지 궁금함. 그곳이 운명원인데 주변에서 궁합 본 사람들 꽤 있던데"
+    result = validate_comment(text, **OPTS)
+    assert result["ok"] is False
+    assert check(result, "fake") is False
