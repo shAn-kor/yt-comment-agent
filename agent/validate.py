@@ -172,11 +172,25 @@ def wish_ending_similarity(text: str, previous: str, brand: str) -> float:
 
 def _has_wish_bridge(text: str, brand: str) -> bool:
     sentences = _sentences(text)
-    return any(
-        WISH_BRIDGE.search(" ".join(sentences[max(0, index - 1) : index + 1]))
-        for index, sentence in enumerate(sentences)
-        if brand in sentence
-    )
+    for index, sentence in enumerate(sentences):
+        if brand not in sentence:
+            continue
+        # Outcome words in the service name/report are not the viewer's wish.
+        candidates = [sentence.split(brand, 1)[0]]
+        if index:
+            candidates.append(sentences[index - 1])
+        for candidate in candidates:
+            own_clause = re.split(
+                r"(?:요즘\s*)?주변(?:에서|에)|여럿(?:이|은)|여러\s*사람|사람들(?:이|은|도)",
+                candidate,
+                maxsplit=1,
+            )[0]
+            if WISH_BRIDGE.search(own_clause) and re.search(
+                r"궁금|싶|인지|는지|일지|올지|될지|다를지|이어질지|만날지|될까|맞을까|일까|올까|문제",
+                own_clause,
+            ):
+                return True
+    return False
 
 
 def _usage_violation(text: str, brand: str):
