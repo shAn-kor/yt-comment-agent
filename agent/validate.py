@@ -70,9 +70,21 @@ PLURAL_TALK = re.compile(
     # 복수 표현이 뒤에 오는 어순: "운명원 얘기하는 사람 여럿 있던데"
     r"|얘기\s*(?:하는|한)\s*사람\s*(?:들(?:이|은|도)?(?![가-힣])|(?:이\s*)?(?:몇\s*명|여럿|여러\s*명))"
 )
-# 영상 속 인물의 관계는 시청자 자신의 바람이 아니다.
+# 영상 속 인물이나 남의 관계는 시청자 자신의 바람이 아니다.
 OTHERS_WISH = re.compile(
-    r"영상\s*속|(?<![가-힣])두\s*사람|(?<![가-힣])저\s*둘|(?<![가-힣])둘이|출연자|주인공|그\s*커플"
+    r"영상\s*속|(?<![가-힣])두\s*사람|(?<![가-힣])저\s*둘|(?<![가-힣])그\s*둘|(?<![가-힣])둘이"
+    r"|출연자|주인공|커플|걔네|쟤네"
+    # 이름 두 개를 잇는 주어: "민수랑 영희가"
+    r"|[가-힣]{1,4}(?:이랑|랑|하고|와|과)\s*[가-힣]{1,4}(?:이|가)(?=\s)"
+)
+# 남 얘기가 섞여도 내 바람이면 인정한다: "우리 둘이", "영상 속 커플처럼 나도"
+PERSONAL = re.compile(
+    r"(?<![가-힣])(?:나|저)(?:는|도|만|랑|한테)(?![가-힣])|(?<![가-힣])(?:내|제)(?:가)?(?![가-힣])"
+    r"|(?<![가-힣])우리(?:는|도|가|\s*둘)?|(?<![가-힣])이\s*사람"
+)
+# "시간을 맞춘다"처럼 내 상황을 말하는 맞추다는 효과 주장이 아니다.
+OWN_FIT = re.compile(
+    r"(?:시간|일정|약속|날짜|스케줄|박자|비위|눈높이|기분|템포|속도|취향|보폭|장단)\s*(?:을|를|에|도)?\s*(?:잘\s*)?$"
 )
 FIRST_SUBJECT = re.compile(r"(?<![가-힣])(?:나|저)(?:는|도|가)?(?![가-힣])|내가|제가")
 WISH_ENDING_SIMILARITY = 0.7
@@ -195,7 +207,7 @@ def _has_wish_bridge(text: str, brand: str) -> bool:
             )[0]
             if (
                 WISH_BRIDGE.search(own_clause)
-                and not OTHERS_WISH.search(own_clause)
+                and (not OTHERS_WISH.search(own_clause) or PERSONAL.search(own_clause))
                 and re.search(
                     r"궁금|싶|인지|는지|일지|올지|될지|다를지|이어질지|만날지|될까|맞을까|일까|올까|려나|문제",
                     own_clause,
@@ -214,13 +226,10 @@ def _usage_subject_prefix(prefix: str) -> str:
 
 
 def _usage_violation(text: str, brand: str):
-    # 효과 주장은 브랜드 바로 앞 문장부터 끝까지 본다.
-    # 그보다 앞의 내 상황 문장("시간을 맞춘다")은 브랜드 얘기가 아니다.
-    sentences = _sentences(text)
-    first = next((i for i, s in enumerate(sentences) if brand in s), len(sentences))
-    efficacy = EFFICACY.search(" ".join(sentences[max(0, first - 1) :]))
-    if efficacy:
-        return efficacy
+    # 효과 주장은 글 전체에서 찾되, 내 상황을 말하는 "시간을 맞춘다"는 건너뛴다.
+    for efficacy in EFFICACY.finditer(text):
+        if not OWN_FIT.search(text[: efficacy.start()]):
+            return efficacy
     safe = []
     for sentence in _sentences(text):
         if plural_hearsay(sentence, brand):

@@ -52,3 +52,37 @@ def test_R2_efficacy_in_or_after_the_brand_sentence_is_still_rejected(text):
     result = validate_comment(text, **OPTS)
     assert result["ok"] is False
     assert check(result, "fake") is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # 효과 주장이 브랜드보다 두 문장 앞에 있어도 막는다
+        "연락 빈도부터 줄이라는 말에 나도 멈칫함. 남의 연애도 잘 맞힌다던데. 내 인연은 언제 올지 궁금함. 주변에서 운명원 궁합 본 사람들 꽤 있던데",
+        "연락 빈도부터 줄이라는 말에 나도 멈칫함. 연애를 잘 맞힌다는 곳이 있다던데. 내 인연은 언제 올지 궁금함. 그곳이 운명원인데 주변에서 궁합 본 사람들 꽤 있던데",
+    ],
+)
+def test_R3_efficacy_anywhere_before_the_brand_is_rejected(text):
+    result = validate_comment(text, **OPTS)
+    assert result["ok"] is False
+    assert check(result, "fake") is False
+
+
+def test_R3_named_third_party_pair_is_not_a_personal_wish():
+    text = "연락 빈도부터 줄이라는 말에 나도 멈칫함. 민수랑 영희가 인연인지 궁금함. 주변에서 운명원 궁합 본 사람들 꽤 있던데"
+    result = validate_comment(text, **OPTS)
+    assert result["ok"] is False
+    assert check(result, "wish_bridge") is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "연락 빈도부터 줄이라는 말에 나도 멈칫함. 우리 둘이 인연인지 궁금함. 주변에서 운명원 궁합 본 사람들 꽤 있던데",
+        "연락 빈도부터 줄이라는 말에 나도 멈칫함. 나만 시간을 맞춘다는데 이 사람이랑 인연인지 궁금함. 주변에서 운명원 궁합 본 사람들 꽤 있던데",
+        "연락 빈도부터 줄이라는 말에 나도 멈칫함. 영상 속 커플처럼 나도 내 인연을 언제 만날지 궁금함. 주변에서 운명원 궁합 본 사람들 꽤 있던데",
+    ],
+)
+def test_R3_personal_wish_with_others_mentioned_passes(text):
+    result = validate_comment(text, **OPTS)
+    assert result["ok"] is True, result["errors"]
